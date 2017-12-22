@@ -17,8 +17,9 @@ if config.q < min(config.filter_list):
     print("\n\n\n\t\tINCREASE q...")
 
 #read in features and labels
-x = np.load("../data/x.npy")
-y = np.load("../data/y.npy")
+x = np.load("../data/x_electric.npy")
+y = np.load("../data/y_electric.npy")
+print(x.shape,y.shape)
 
 ##############################################
 # loop through data collecting features for previous q days
@@ -85,9 +86,9 @@ seq_label = mx.sym.Variable(train_iter.provide_label[0].name)
 conv_input = mx.sym.Reshape(data=seq_data, shape=(config.batch_size, 1, config.q, y.shape[1]))
 
 
-#######################################
-# convolutional component
-#######################################
+print("\n\t#################################\n\
+       #convolutional component:\n\
+       #################################\n")
 
 #create many convolutional filters to slide over the input
 outputs = []
@@ -95,7 +96,7 @@ for i, filter_size in enumerate(config.filter_list):
 
         # zero pad the input array, adding rows at the bottom only, to ensure old shape is maintained
         padi = mx.sym.pad(data=conv_input, mode="constant", constant_value=0, 
-                            pad_width=(0, 0, 0, 0, 0, config.q - filter_size, 0, 0))
+                            pad_width=(0, 0, 0, 0, 0, filter_size - 1, 0, 0))
                             
         padi_shape = padi.infer_shape(seq_data=input_feature_shape)[1][0]
 
@@ -110,9 +111,9 @@ for i, filter_size in enumerate(config.filter_list):
         #append resulting symbol to a list
         outputs.append(acti)
 
-print("\npadded size: ", padi_shape)
-print("\n\tfilter size: ", (filter_size, y.shape[1]), " , number filters per size: ", config.num_filter, "sizes: ", len(config.filter_list))
-print("\nconvi output layer shape: ", convi_shape)
+        print("\n\tpadded size for filter height: ", filter_size, " = ", padi_shape)
+        print("\n\t\tfilter size: ", (filter_size, y.shape[1]), " , number of filters: ", config.num_filter)
+        print("\n\tconvi output layer shape: ", convi_shape)
 
 #concatenate symbols to (batch, total_filters, hmm,hmm)
 conv_concat = mx.sym.Concat(*outputs, dim=1)
@@ -123,11 +124,12 @@ total_filters = config.num_filter * len(config.filter_list * convi_shape[2])
 
 #flatten the square results from the conv layer into a single 1D array per batch
 conv_flat = mx.sym.Reshape(data=conv_concat, target_shape=(config.batch_size, total_filters))
-print("\nflattened shape: ", conv_flat.infer_shape(seq_data=input_feature_shape)[1][0])
+conv_flat_shape = conv_flat.infer_shape(seq_data=input_feature_shape)[1][0]
+print("\nflattened shape: ", conv_flat_shape)
 
-#####################################
-# recurrent component
-#####################################
+print("\n\t#################################\n\
+       #recurrent component:\n\
+       #################################\n")
 
 #define a gated recurrent unit cell, which we can unroll into many symbols based on our desired time dependancy
 cell_outputs = []
@@ -140,6 +142,7 @@ for i, recurrent_cell in enumerate(config.rcells):
     #for each unrolled timestep
     step_outputs = []
     for i, step_output in enumerate(outputs):
+
         #apply dropout to the lstm output
         #drop = mx.sym.Dropout(data=step_output, p=config.dropout, mode='training')
         #add a fully connected layer with num_neurons = num_possible_tags
@@ -150,6 +153,10 @@ for i, recurrent_cell in enumerate(config.rcells):
         #apply relu activation function
         acti = mx.sym.Activation(data=step_output, act_type='relu')
 
+        if i == 0:
+            print("\n\teach of the ", conv_flat_shape[1], " unrolled hidden cells in the RNN is of shape: ",
+                  step_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
+
         #append symbol to a list
         step_outputs.append(acti)
 
@@ -159,15 +166,17 @@ for i, recurrent_cell in enumerate(config.rcells):
     #append to list
     cell_outputs.append(concatenated_output)
 
-print("\nconcatenated unrolled recurrent shap for each of the ", len(config.rcells), " cell types: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0])
+print("\n\tconcatenated unrolled recurrent shape for each of the ", len(config.rcells),
+      " combined skip pairs after adding connections: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
+
 
 #concatenate output from each type of recurrent cell (shape is now (batch_size, len(config.cells) * statesize * unrolls)) 
-concatenated_rnn_outputs = mx.sym.concat(*cell_outputs, dim=1)
-print("\nflattened recurrent shape : ", concatenated_rnn_outputs.infer_shape(seq_data=input_feature_shape)[1][0])
+rnn_component = mx.sym.concat(*cell_outputs, dim=1)
+print("\ncombined flattened recurrent shape : ", rnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
-#####################################
-# recurrent-skip component
-#####################################
+print("\n\t#################################\n\
+       #recurrent-skip component:\n\
+       #################################\n")
 
 # connect hidden cells that are a defined time interval apart,
 # because in practice very long term dependencies are not captured by LSTM/GRU
@@ -177,6 +186,7 @@ print("\nflattened recurrent shape : ", concatenated_rnn_outputs.infer_shape(seq
 
 #define number of cells to skip through to get a certain time interval back from current hidden state
 p =int(config.seasonal_period / config.time_interval)
+print("adding skip connections for cells ", p, " intervals apart...")
 
 #define a gated recurrent unit cell, which we can unroll into many symbols based on our desired time dependancy
 skipcell_outputs = []
@@ -190,7 +200,8 @@ for i, recurrent_cell in enumerate(config.skiprcells):
     step_outputs = []
     for i, current_cell in enumerate(outputs):
 
-        if i + 1 < len(outputs):
+        #keep going through until we have connected every cell
+        if i + p < len(outputs):
 
             #get seasonal cell p steps behind
             skip_cell = outputs[i + p]
@@ -205,39 +216,68 @@ for i, recurrent_cell in enumerate(config.skiprcells):
             #append symbol to a list
             step_outputs.append(acti)
 
+            if i == 0:
+                print("\n\teach of the ", conv_flat_shape[1], " unrolled hidden cells in the skip-RNN is of shape: ",
+                      current_cell.infer_shape(seq_data=input_feature_shape)[
+                    1][0], "\n\t each of the ", int(conv_flat_shape[1] / 2), " pairs of connected hidden cells is of shape: ",
+                    concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0])
+
+    print(len(step_outputs)*2, "pairs created")
+
     #concatenate output for each timestep (shape is now (batch_size, state size * unrolls))
     concatenated_output = mx.sym.concat(*step_outputs, dim=1)
 
     #append to list
     skipcell_outputs.append(concatenated_output)
 
-print("\nconcatenated unrolled recurrent shape for each of the ", len(config.rcells), " combined skip pairs after adding connections: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0])
+print("\n\tconcatenated unrolled recurrent shape for each of the ", len(config.skiprcells), 
+    " combined skip pairs after adding connections: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
 
 #concatenate output from each type of recurrent cell (shape is now (batch_size, len(config.cells) * statesize * unrolls)) 
-concatenated_skiprnn_outputs = mx.sym.concat(*cell_outputs, dim=1)
-print("\nflattened recurrent-skip shape : ", concatenated_skiprnn_outputs.infer_shape(seq_data=input_feature_shape)[1][0])
+skiprnn_component = mx.sym.concat(*skipcell_outputs, dim=1)
+print("\ncombined flattened recurrent-skip shape : ", skiprnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
-#########################################
-# fully connected/reshaping
-#########################################
+print("\n\t#################################\n\
+       #autoregressive component:\n\
+       #################################\n")
 
-#concatenate skip and normal rnn outputs
-rnn_weights = mx.sym.concat(*[concatenated_rnn_outputs, concatenated_skiprnn_outputs], dim=1)
+#AR component simply says the next prediction 
+# is the some constant times all the previous values available (q).
 
 #pass recurrent layer to fully connected layer
-fc = mx.sym.FullyConnected(data=rnn_weights, num_hidden=y.shape[1] * 2)
-print("\nfully connected shape : ", fc.infer_shape(seq_data=input_feature_shape)[1][0])
+ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=y.shape[1] * 2)
+
+#reshape so we can simply add to the probability from DL layers
+reshaped_ar = mx.sym.Reshape(data=ar_component, target_shape=(config.batch_size, 2, y.shape[1]))
+print("\nautoregressive layer output shape: ", reshaped_ar.infer_shape(seq_data=input_feature_shape)[1][0])
+
+#do not apply activation function since we want this to be linear
+
+print("\n\t#################################\n\
+       #combine AR and NN components:\n\
+       #################################\n")
+
+#combine model components
+neural_components = mx.sym.concat(*[rnn_component, skiprnn_component], dim=1)
+
+#pass rto fully connected layer to map to n outputs * classes
+fc = mx.sym.FullyConnected(data=neural_components, num_hidden=y.shape[1] * 2)
+print("\nNN fully connected shape : ", fc.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #reshape before applying loss layer so we can predict each class
-reshaped_fc = mx.sym.Reshape(data=fc, target_shape=(config.batch_size, 2, y.shape[1]))
-print("\nreshaped connected shape: ", reshaped_fc.infer_shape(seq_data=input_feature_shape)[1][0])                                                              
+reshaped_nn = mx.sym.Reshape(data=fc, target_shape=(config.batch_size, 2, y.shape[1]))
+print("\nNN reshaped connected shape: ", reshaped_nn.infer_shape(seq_data=input_feature_shape)[1][0])  
+
+#sum the output from AR and deep learning
+model_output = reshaped_nn + reshaped_ar
+print("\nshape after adding autoregressive output: ", model_output.infer_shape(seq_data=input_feature_shape)[1][0])  
 
 #########################################
 # loss function
 #########################################
 
 #compute the gradient of the softmax loss , applying softmax to axis 1 of each batch
-loss_grad = mx.sym.SoftmaxOutput(data=reshaped_fc, label=seq_label, multi_output=True)
+loss_grad = mx.sym.SoftmaxOutput(data=model_output, label=seq_label, multi_output=True)
 
 #set network point to back
 batmans_NN = loss_grad
@@ -253,7 +293,26 @@ model = mx.mod.Module(symbol=batmans_NN,
 #define evaluation metrics to show when training
 #####################################
 
+# we want to see how accurate we are at each time series, 
+# since we only need to identify some ones we can predict well
+
 eval_metric_1 = mx.metric.Accuracy()
+
+#we want to see recall per input time series
+def custom_metric(label, pred):
+
+    label = label.astype(int)
+
+    #find the modal prediction per class
+    y_pred = np.argmax(pred, axis = 1)
+
+    correct = label == y_pred
+
+    accuracy_per_series = np.mean(correct, axis=1)
+
+    return accuracy_per_series
+
+eval_metric_1 = mx.metric.create(custom_metric)
 
 ################
 # #fit the model
