@@ -12,7 +12,7 @@ df = df.iloc[:6000, :]
 def get_ts_label(array):
     """outputs an array of labels"""
 
-    #shift input array backwards one value backwards
+    #shift input array backwards one value
     shifted_array = np.roll(array, -1)
 
     #remove last value from input and shifted array since we do not know the next value

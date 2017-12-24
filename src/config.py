@@ -1,10 +1,12 @@
 import mxnet as mx
 import math
 
+predict_index = 1 #column index of time series we wish to predict the next value for
+horizon = 1 #horizon we want to predict ahead for
 split = [0.8,0.2] #the ration of training to testing data
 batch_size = 3 #number of examples to pass into the network/use to compute gradient of the loss function
 filter_list = [2] #must be smaller than q!!!, size of filters sliding over the input data
-num_filter = 3 #number of each filter size
+num_filter = 1 #number of each filter size
 recurrent_state_size = 3 #number of hidden units for each unrolled recurrent layer
 context = mx.cpu() #train on cpu because maclyfe
 learning_rate = 0.05 #learning rate for plain vanilla sgd

@@ -1,13 +1,13 @@
 #modules
-import mxnet as mx
-import numpy as np
-import sys
-import os
 import math
+import os
+import sys
+
+import numpy as np
 
 #custom modules
 import config
-
+import mxnet as mx
 
 ##############################################
 #load input data
@@ -16,26 +16,29 @@ import config
 if config.q < min(config.filter_list):
     print("\n\n\n\t\tINCREASE q...")
 
-#read in features and labels
+#read in multiple time series
 x = np.load("../data/x_electric.npy")
-y = np.load("../data/y_electric.npy")
-print(x.shape,y.shape)
 
 ##############################################
-# loop through data collecting features for previous q days
+# loop through data constructing features/labels
 ##############################################
+
+#create arrays for storing values in
+x_ts = np.zeros((x.shape[0] - config.q,  config.q, x.shape[1]))
+y_ts = np.zeros((x.shape[0] - config.q))
 
 #loop through collecting records for ts analysis depending on q
 for n in list(range(x.shape[0])):
+
     if n + 1 < config.q:
         continue
-    else:
-        y_n = y[n,:]
-        x_n = x[n+1 - config.q:n+1,:]
 
-    if n + 1 == config.q:
-        x_ts = np.zeros((y.shape[0] - config.q,  config.q, x.shape[1]))
-        y_ts = np.zeros((y.shape[0] - config.q,  x.shape[1]))
+    if n + 1 + config.horizon > x.shape[0]:
+        continue
+
+    else:
+        y_n = x[n+config.horizon,config.predict_index]
+        x_n = x[n+1 - config.q:n+1,:]
 
     x_ts[n - config.q] = x_n
     y_ts[n - config.q] = y_n
@@ -48,9 +51,9 @@ y_train = y_ts[:training_examples]
 x_test = x_ts[training_examples:]
 y_test = y_ts[training_examples:]
 
-# print("\n\n\n\n")
-# print(x_train[:4])
-# print(y_train[:4])
+print("\nsingle X, Y record example:\n\n")
+print(x_train[:1])
+print(y_train[:1])
 
 print("\ntraining examples: ", x_train.shape[0], "\n\ntest examples: ", x_test.shape[0])
 
@@ -81,9 +84,11 @@ print("\nfeature input shape: ", input_feature_shape,
 seq_data = mx.symbol.Variable(train_iter.provide_data[0].name)
 seq_label = mx.sym.Variable(train_iter.provide_label[0].name)
 
+# scale input data so features are all between 0 and 1
+normalized_seq_data = mx.sym.BatchNorm(data = seq_data)
 
-# reshape embedded data for next layer takes 4D shape incase you ever work with images
-conv_input = mx.sym.Reshape(data=seq_data, shape=(config.batch_size, 1, config.q, y.shape[1]))
+# reshape data before applying convolutional layer (takes 4D shape incase you ever work with images)
+conv_input = mx.sym.Reshape(data=normalized_seq_data, shape=(config.batch_size, 1, config.q, x.shape[1]))
 
 
 print("\n\t#################################\n\
@@ -94,38 +99,43 @@ print("\n\t#################################\n\
 outputs = []
 for i, filter_size in enumerate(config.filter_list):
 
-        # zero pad the input array, adding rows at the bottom only, to ensure old shape is maintained
+        # zero pad the input array, adding rows at the bottom only
+        # this ensures the number output rows = number input rows after applying kernel
         padi = mx.sym.pad(data=conv_input, mode="constant", constant_value=0, 
-                            pad_width=(0, 0, 0, 0, 0, filter_size - 1, 0, 0))
-                            
+                            pad_width=(0, 0, 0, 0, 0, filter_size - 1, 0, 0))                  
         padi_shape = padi.infer_shape(seq_data=input_feature_shape)[1][0]
 
         # apply convolutional layer (the result of each kernel position is a single number)
-        convi = mx.sym.Convolution(data=padi, kernel=(filter_size, y.shape[1]), num_filter=config.num_filter)
+        convi = mx.sym.Convolution(data=padi, kernel=(filter_size, x.shape[1]), num_filter=config.num_filter)
         convi_shape = convi.infer_shape(seq_data=input_feature_shape)[1][0]
-        # output data shape: batch_size, channel = num_filter, out_height = see formula, out_width = see formula).
 
-        #apply relu activation function
+        #apply relu activation function as per paper
         acti = mx.sym.Activation(data=convi, act_type='relu')
 
+        #transpose output to shape in preparation for recurrent layer (batches, q, num filter, 1)
+        transposed_convi = mx.symbol.transpose(data=acti, axes= (0,2,1,3))
+        transposed_convi_shape = transposed_convi.infer_shape(seq_data=input_feature_shape)[1][0]
+
+        #reshape to (batches, q, num filter)
+        reshaped_transposed_convi = mx.sym.Reshape(data=transposed_convi, target_shape=(config.batch_size, config.q, config.num_filter))
+        reshaped_transposed_convi_shape = reshaped_transposed_convi.infer_shape(seq_data=input_feature_shape)[1][0]
+
         #append resulting symbol to a list
-        outputs.append(acti)
+        outputs.append(reshaped_transposed_convi)
 
-        print("\n\tpadded size for filter height: ", filter_size, " = ", padi_shape)
-        print("\n\t\tfilter size: ", (filter_size, y.shape[1]), " , number of filters: ", config.num_filter)
-        print("\n\tconvi output layer shape: ", convi_shape)
+        print("\n\tpadded input size: ", padi_shape)
+        print("\n\t\tfilter size: ", (filter_size, x.shape[1]), " , number of filters: ", config.num_filter)
+        print("\n\tconvi output layer shape (notice length is maintained): ", convi_shape)
+        print("\n\tconvi output layer after transposing: ", transposed_convi_shape)
+        print("\n\tconvi output layer after reshaping: ", reshaped_transposed_convi_shape)
 
-#concatenate symbols to (batch, total_filters, hmm,hmm)
-conv_concat = mx.sym.Concat(*outputs, dim=1)
-print("\nconcat output layer shape: ", conv_concat.infer_shape(seq_data=input_feature_shape)[1][0])
+#concatenate symbols to (batch, total_filters, q, 1)
+conv_concat = mx.sym.Concat(*outputs, dim=2)
+conv_concat_shape = conv_concat.infer_shape(seq_data=input_feature_shape)[1][0]
+print("\nconcat output layer shape: ", conv_concat_shape)
 
 #calculate the total number of convolutional filters, each will produce a single number
 total_filters = config.num_filter * len(config.filter_list * convi_shape[2])
-
-#flatten the square results from the conv layer into a single 1D array per batch
-conv_flat = mx.sym.Reshape(data=conv_concat, target_shape=(config.batch_size, total_filters))
-conv_flat_shape = conv_flat.infer_shape(seq_data=input_feature_shape)[1][0]
-print("\nflattened shape: ", conv_flat_shape)
 
 print("\n\t#################################\n\
        #recurrent component:\n\
@@ -137,7 +147,7 @@ for i, recurrent_cell in enumerate(config.rcells):
 
     #unroll the lstm cell, obtaining a symbol each time
     # Each symbol is of shape (batch_size, hidden_dim)
-    outputs, states = recurrent_cell.unroll(length=total_filters, inputs=conv_flat, merge_outputs=False, layout="NTC")
+    outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_concat, merge_outputs=False, layout="NTC")
 
     #for each unrolled timestep
     step_outputs = []
@@ -147,14 +157,14 @@ for i, recurrent_cell in enumerate(config.rcells):
         #drop = mx.sym.Dropout(data=step_output, p=config.dropout, mode='training')
         #add a fully connected layer with num_neurons = num_possible_tags
         #print("\nrecurrent shape at time: ", i, step_output.infer_shape(seq_data=input_feature_shape)[1][0])
-        #fc = mx.sym.FullyConnected(data=step_output, num_hidden=y.shape[1])
+        #fc = mx.sym.FullyConnected(data=step_output, num_hidden=x.shape[1])
         #print("\nfully connected shape at time: ", i, fc.infer_shape(seq_data=input_feature_shape)[1][0])
 
         #apply relu activation function
         acti = mx.sym.Activation(data=step_output, act_type='relu')
 
         if i == 0:
-            print("\n\teach of the ", conv_flat_shape[1], " unrolled hidden cells in the RNN is of shape: ",
+            print("\n\teach of the ", conv_concat_shape[1], " unrolled hidden cells in the RNN is of shape: ",
                   step_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
 
         #append symbol to a list
@@ -194,14 +204,14 @@ for i, recurrent_cell in enumerate(config.skiprcells):
 
     #unroll the rnn cell, obtaining a symbol each time
     # Each symbol is of shape (batch_size, hidden_dim)
-    outputs, states = recurrent_cell.unroll(length=total_filters, inputs=conv_flat, merge_outputs=False, layout="NTC")
+    outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_concat, merge_outputs=False, layout="NTC")
 
     #for each unrolled timestep
     step_outputs = []
     for i, current_cell in enumerate(outputs):
 
-        #keep going through until we have connected every cell
-        if i + p < len(outputs):
+        #try adding a concatenated skip connection
+        try:
 
             #get seasonal cell p steps behind
             skip_cell = outputs[i + p]
@@ -217,12 +227,19 @@ for i, recurrent_cell in enumerate(config.skiprcells):
             step_outputs.append(acti)
 
             if i == 0:
-                print("\n\teach of the ", conv_flat_shape[1], " unrolled hidden cells in the skip-RNN is of shape: ",
+                print("\n\teach of the ", conv_concat_shape[1], " unrolled hidden cells in the skip-RNN is of shape: ",
                       current_cell.infer_shape(seq_data=input_feature_shape)[
-                    1][0], "\n\t each of the ", int(conv_flat_shape[1] / 2), " pairs of connected hidden cells is of shape: ",
+                    1][0], "\n\t each of the ", "WORK THIS OUT", " pairs of connected hidden cells is of shape: ",
                     concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0])
 
-    print(len(step_outputs)*2, "pairs created")
+        except IndexError:
+            #if we cannot concatenate just leave as is
+
+            #apply relu activation
+            acti = mx.sym.Activation(data=current_cell, act_type='relu')
+
+            #append symbol to a list
+            step_outputs.append(acti)
 
     #concatenate output for each timestep (shape is now (batch_size, state size * unrolls))
     concatenated_output = mx.sym.concat(*step_outputs, dim=1)
@@ -244,12 +261,13 @@ print("\n\t#################################\n\
 #AR component simply says the next prediction 
 # is the some constant times all the previous values available (q).
 
-#pass recurrent layer to fully connected layer
-ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=y.shape[1] * 2)
+#pass recurrent layer to fully connected layer with q neurons (same as AR)
+ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=config.q)
+print("\nautoregressive layer output shape: ", ar_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
-#reshape so we can simply add to the probability from DL layers
-reshaped_ar = mx.sym.Reshape(data=ar_component, target_shape=(config.batch_size, 2, y.shape[1]))
-print("\nautoregressive layer output shape: ", reshaped_ar.infer_shape(seq_data=input_feature_shape)[1][0])
+#pass to fully connected layer to map to a single value
+ar_output = mx.sym.FullyConnected(data=ar_component, num_hidden=1)
+print("\nAR output shape : ", ar_output.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #do not apply activation function since we want this to be linear
 
@@ -260,29 +278,28 @@ print("\n\t#################################\n\
 #combine model components
 neural_components = mx.sym.concat(*[rnn_component, skiprnn_component], dim=1)
 
-#pass rto fully connected layer to map to n outputs * classes
-fc = mx.sym.FullyConnected(data=neural_components, num_hidden=y.shape[1] * 2)
-print("\nNN fully connected shape : ", fc.infer_shape(seq_data=input_feature_shape)[1][0])
-
-#reshape before applying loss layer so we can predict each class
-reshaped_nn = mx.sym.Reshape(data=fc, target_shape=(config.batch_size, 2, y.shape[1]))
-print("\nNN reshaped connected shape: ", reshaped_nn.infer_shape(seq_data=input_feature_shape)[1][0])  
+#pass to fully connected layer to map to a single value
+neural_output = mx.sym.FullyConnected(data=neural_components, num_hidden=1)
+print("\nNN output shape : ", neural_output.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #sum the output from AR and deep learning
-model_output = reshaped_nn + reshaped_ar
+model_output = neural_output + ar_output
 print("\nshape after adding autoregressive output: ", model_output.infer_shape(seq_data=input_feature_shape)[1][0])  
 
 #########################################
 # loss function
 #########################################
 
-#compute the gradient of the softmax loss , applying softmax to axis 1 of each batch
-loss_grad = mx.sym.SoftmaxOutput(data=model_output, label=seq_label, multi_output=True)
+#compute the gradient of the L2 loss
+loss_grad = mx.sym.LinearRegressionOutput(data = model_output, label = seq_label)
 
-#set network point to back
+#set network point to back so name is interpretable
 batmans_NN = loss_grad
 
+#########################################
 # create a trainable module on CPU/GPU
+#########################################
+
 model = mx.mod.Module(symbol=batmans_NN,
                       context=config.context,
                       data_names=[v.name for v in train_iter.provide_data],
@@ -293,42 +310,11 @@ model = mx.mod.Module(symbol=batmans_NN,
 #define evaluation metrics to show when training
 #####################################
 
-# we want to see how accurate we are at each time series, 
-# since we only need to identify some ones we can predict well
-
-eval_metric_1 = mx.metric.Accuracy()
-
-#we want to see recall per input time series
-def custom_metric(label, pred):
-
-    label = label.astype(int)
-
-    #find the modal prediction per class
-    y_pred = np.argmax(pred, axis = 1)
-
-    correct = label == y_pred
-
-    accuracy_per_series = np.mean(correct, axis=1)
-
-    return accuracy_per_series
-
-eval_metric_1 = mx.metric.create(custom_metric)
+eval_metric_1 = mx.metric.RMSE()
 
 ################
 # #fit the model
 ################
-
-# model.fit(
-#     train_data=train_iter,
-#     eval_data=val_iter,
-#     eval_metric=eval_metrics,
-#     optimizer='sgd',
-#     optimizer_params={"learning_rate": config.learning_rate},
-#     num_epoch=config.num_epoch)
-
-###############
-# fit the model using lower level code (to debug issues)
-##############
 
 # allocate memory given the input data and label shapes
 model.bind(data_shapes=train_iter.provide_data,
