@@ -2,7 +2,6 @@
 import math
 import os
 import sys
-
 import numpy as np
 
 #custom modules
@@ -16,8 +15,11 @@ import mxnet as mx
 if config.q < min(config.filter_list):
     print("\n\n\n\t\tINCREASE q...")
 
-#read in multiple time series
-x = np.load("../data/x_electric.npy")
+#read in multivariate time series data
+x = np.load("../data/electric.npy")
+
+if config.max_training_examples:
+    x = x[:config.max_training_examples]
 
 ##############################################
 # loop through data constructing features/labels
@@ -54,6 +56,8 @@ y_test = y_ts[training_examples:]
 print("\nsingle X, Y record example:\n\n")
 print(x_train[:1])
 print(y_train[:1])
+print(x_train[1:2])
+print(y_train[1:2])
 
 print("\ntraining examples: ", x_train.shape[0], "\n\ntest examples: ", x_test.shape[0])
 
@@ -153,13 +157,6 @@ for i, recurrent_cell in enumerate(config.rcells):
     step_outputs = []
     for i, step_output in enumerate(outputs):
 
-        #apply dropout to the lstm output
-        #drop = mx.sym.Dropout(data=step_output, p=config.dropout, mode='training')
-        #add a fully connected layer with num_neurons = num_possible_tags
-        #print("\nrecurrent shape at time: ", i, step_output.infer_shape(seq_data=input_feature_shape)[1][0])
-        #fc = mx.sym.FullyConnected(data=step_output, num_hidden=x.shape[1])
-        #print("\nfully connected shape at time: ", i, fc.infer_shape(seq_data=input_feature_shape)[1][0])
-
         #apply relu activation function
         acti = mx.sym.Activation(data=step_output, act_type='relu')
 
@@ -168,7 +165,7 @@ for i, recurrent_cell in enumerate(config.rcells):
                   step_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
 
         #append symbol to a list
-        step_outputs.append(acti)
+        step_outputs.append(step_output)
 
     #concatenate output for each timestep (shape is now (batch_size, state size * unrolls))
     concatenated_output = mx.sym.concat(*step_outputs, dim=1)
@@ -176,13 +173,13 @@ for i, recurrent_cell in enumerate(config.rcells):
     #append to list
     cell_outputs.append(concatenated_output)
 
-print("\n\tconcatenated unrolled recurrent shape for each of the ", len(config.rcells),
-      " combined skip pairs after adding connections: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
+print("\n\tconcatenated recurrent shape for each of the ", len(config.rcells),
+      " RNN cell types: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
 
 
 #concatenate output from each type of recurrent cell (shape is now (batch_size, len(config.cells) * statesize * unrolls)) 
 rnn_component = mx.sym.concat(*cell_outputs, dim=1)
-print("\ncombined flattened recurrent shape : ", rnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
+print("\nshape after combining RNN cell types: ", rnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
 print("\n\t#################################\n\
        #recurrent-skip component:\n\
@@ -207,6 +204,7 @@ for i, recurrent_cell in enumerate(config.skiprcells):
     outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_concat, merge_outputs=False, layout="NTC")
 
     #for each unrolled timestep
+    counter = 0
     step_outputs = []
     for i, current_cell in enumerate(outputs):
 
@@ -218,19 +216,15 @@ for i, recurrent_cell in enumerate(config.skiprcells):
 
             #connect this cell to is seasonal neighbour
             cell_pair = [current_cell, skip_cell]
-            concatenated_output = mx.sym.concat(*cell_pair, dim=1)
+            concatenated_pair = mx.sym.concat(*cell_pair, dim=1)
 
             #apply relu activation
-            acti = mx.sym.Activation(data=concatenated_output, act_type='relu')
+            acti = mx.sym.Activation(data=concatenated_pair, act_type='relu')
 
             #append symbol to a list
-            step_outputs.append(acti)
+            step_outputs.append(concatenated_pair)
 
-            if i == 0:
-                print("\n\teach of the ", conv_concat_shape[1], " unrolled hidden cells in the skip-RNN is of shape: ",
-                      current_cell.infer_shape(seq_data=input_feature_shape)[
-                    1][0], "\n\t each of the ", "WORK THIS OUT", " pairs of connected hidden cells is of shape: ",
-                    concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0])
+            counter += 1
 
         except IndexError:
             #if we cannot concatenate just leave as is
@@ -239,13 +233,22 @@ for i, recurrent_cell in enumerate(config.skiprcells):
             acti = mx.sym.Activation(data=current_cell, act_type='relu')
 
             #append symbol to a list
-            step_outputs.append(acti)
+            step_outputs.append(current_cell)
 
     #concatenate output for each timestep (shape is now (batch_size, state size * unrolls))
     concatenated_output = mx.sym.concat(*step_outputs, dim=1)
 
     #append to list
     skipcell_outputs.append(concatenated_output)
+
+    print("\n\t", counter, " skip connections created...")
+    print("\n\t each of the ", counter, " pairs of connected hidden cells is of shape: ",
+            concatenated_pair.infer_shape(seq_data=input_feature_shape)[1][0])
+    print("\n\teach of the ", conv_concat_shape[1] - counter, " remaining unrolled hidden cells in the skip-RNN is of shape: ",
+                current_cell.infer_shape(seq_data=input_feature_shape)[1][0])
+    print("\n\tresulting shape should be", (config.batch_size, (counter) *(config.recurrent_state_size * 2) + 
+                                            (conv_concat_shape[1] - counter) * config.recurrent_state_size))
+
 
 print("\n\tconcatenated unrolled recurrent shape for each of the ", len(config.skiprcells), 
     " combined skip pairs after adding connections: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
@@ -262,7 +265,7 @@ print("\n\t#################################\n\
 # is the some constant times all the previous values available (q).
 
 #pass recurrent layer to fully connected layer with q neurons (same as AR)
-ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=config.q)
+ar_component = mx.sym.FullyConnected(data=normalized_seq_data, num_hidden=config.q)
 print("\nautoregressive layer output shape: ", ar_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #pass to fully connected layer to map to a single value
@@ -276,7 +279,7 @@ print("\n\t#################################\n\
        #################################\n")
 
 #combine model components
-neural_components = mx.sym.concat(*[rnn_component, skiprnn_component], dim=1)
+neural_components = mx.sym.concat(*[rnn_component, skiprnn_component], dim = 1)
 
 #pass to fully connected layer to map to a single value
 neural_output = mx.sym.FullyConnected(data=neural_components, num_hidden=1)
