@@ -267,7 +267,7 @@ print("\n\t#################################\n\
 # is the some constant times all the previous values available (q).
 
 #pass recurrent layer to fully connected layer with q * n neurons (same as AR)
-ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=config.q * x.shape[1])
+ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=config.q)# * x.shape[1])
 print("\nautoregressive layer output shape: ", ar_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #pass to fully connected layer to map to a single value per time series
@@ -376,42 +376,50 @@ model.init_params()
 model.init_optimizer(optimizer=config.optimizer, optimizer_params=config.optimizer_params)
 
 # train n epochs, i.e. going over the data iter one pass
-for epoch in range(config.num_epoch):
-    train_iter.reset()
-    val_iter.reset()
-    metrics.reset()
-    for batch in train_iter:
-        model.forward(batch, is_train=True)       # compute predictions
-        # accumulate prediction accuracy
-        model.update_metric(metrics, batch.label)
-        model.backward()                          # compute gradients
-        model.update()                            # update parameters
+try:
 
-    print('Epoch %d, Training %s' % (epoch, metrics.get()))
+    for epoch in range(config.num_epoch):
+        
+        train_iter.reset()
+        val_iter.reset()
+        metrics.reset()
+        for batch in train_iter:
+            model.forward(batch, is_train=True)       # compute predictions
+            # accumulate prediction accuracy
+            model.update_metric(metrics, batch.label)
+            model.backward()                          # compute gradients
+            model.update()                            # update parameters
 
-    metrics.reset()
-    for batch in val_iter:
-        model.forward(batch, is_train=False)       # compute predictions
-        # accumulate prediction accuracy
-        model.update_metric(metrics, batch.label)
+        print('Epoch %d, Training %s' % (epoch, metrics.get()))
 
-    print('Epoch %d, Validation %s' % (epoch, metrics.get()))
+        metrics.reset()
+        for batch in val_iter:
+            model.forward(batch, is_train=False)       # compute predictions
+            # accumulate prediction accuracy
+            model.update_metric(metrics, batch.label)
 
-    # metrics.reset()
-    # for batch in test_iter:
-    #     model.forward(batch, is_train=False)       # compute predictions
-    #     # accumulate prediction accuracy
-    #     model.update_metric(metrics, batch.label)
+        print('Epoch %d, Validation %s' % (epoch, metrics.get()))
 
-    # print('Epoch %d, Test %s' % (epoch, metrics.get()))
+        # metrics.reset()
+        # for batch in test_iter:
+        #     model.forward(batch, is_train=False)       # compute predictions
+        #     # accumulate prediction accuracy
+        #     model.update_metric(metrics, batch.label)
+
+        # print('Epoch %d, Test %s' % (epoch, metrics.get()))
 
 
 ################
-# save model after epochs
+# save model after epochs or if user exits early
 ################
 
-model.save_checkpoint(
-    prefix='my_model',
-    epoch=config.num_epoch,
-    save_optimizer_states=False,
-)
+except KeyboardInterrupt:
+    print('\n' * 5, '-' * 89)
+    print('Exiting from training early, saving model...')
+
+    model.save_checkpoint(
+        prefix='my_model',
+        epoch=config.num_epoch,
+        save_optimizer_states=False,
+    )
+    print('\n' * 5, '-' * 89)
