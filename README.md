@@ -10,7 +10,7 @@
 
 ## To do
 
-1. What to do with states from RNN cells (learning to do here). Does my skip-connection between rnn cells do what it should?
+1. Which symbol in the unroll list is t=0? First or last?
 2. Confirm AR component is correct? Needs regularization parameter lambda???!?!?...
 
 ## Hyperparameters...
@@ -20,7 +20,7 @@
 - Recurrent state size = {50, 100, 200}
 - Skip recurrent state size = {20, 50, 100}
 - p = 24h for electricity dataset
-- AR lambda = {0.1,1,10}??? Uhh wut?
+- AR lambda = {0.1,1,10}
 - Adam optimizer
 - Dropout after every layer =  {0.1, 0.2}
 - 

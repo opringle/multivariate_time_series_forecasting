@@ -16,7 +16,7 @@ optimizer_params = {'learning_rate': 0.001,
 num_epoch = 100 #how many times to backpropogate and update weights
 time_interval = 15*60 #seconds between feature values (data defined)
 seasonal_period = 24*60*60 #seconds between important measurements (choose)
-q = max(100, math.ceil(seasonal_period / time_interval))  # number of timesteps used to make a prediction
+q = max(500, math.ceil(seasonal_period / time_interval))  # number of timesteps used to make a prediction
 dropout = 0.1
 
 #choose recurrent cells for the recurrent layer

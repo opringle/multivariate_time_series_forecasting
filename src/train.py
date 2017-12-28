@@ -163,39 +163,25 @@ print("\n\t#################################\n\
 cell_outputs = []
 for i, recurrent_cell in enumerate(config.rcells):
 
-    #unroll the lstm cell, obtaining a symbol each time
-    # Each symbol is of shape (batch_size, hidden_dim)
+    #unroll the lstm cell, obtaining a symbol each time step
     outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_dropout, merge_outputs=False, layout="NTC")
 
-    #for each unrolled timestep
-    step_outputs = []
-    for i, step_output in enumerate(outputs):
+    #we only take the output from the recurrent layer at time t
+    output = outputs[-1]
 
-        #apply relu activation function
-        acti = mx.sym.Activation(data=step_output, act_type='relu')
+    #just ensures we can have multiple RNN layer types
+    cell_outputs.append(output)
 
-        if i == 0:
-            print("\n\teach of the ", conv_concat_shape[1], " unrolled hidden cells in the RNN is of shape: ",
-                  step_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
-
-        #append symbol to a list
-        step_outputs.append(step_output)
-
-    #concatenate output for each timestep (shape is now (batch_size, state size * unrolls))
-    concatenated_output = mx.sym.concat(*step_outputs, dim=1)
-
-    #append to list
-    cell_outputs.append(concatenated_output)
-
-print("\n\tconcatenated recurrent shape for each of the ", len(config.rcells),
-      " RNN cell types: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
+    print("\n\teach of the ", conv_concat_shape[1], " unrolled hidden cells in the RNN is of shape: ",
+          output.infer_shape(seq_data=input_feature_shape)[1][0], 
+          "\nNOTE: only the output from the unrolled cell at time t is used...")
 
 
-#concatenate output from each type of recurrent cell (shape is now (batch_size, len(config.cells) * statesize * unrolls)) 
+#concatenate output from each type of recurrent cell
 rnn_component = mx.sym.concat(*cell_outputs, dim=1)
 print("\nshape after combining RNN cell types: ", rnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
-#apply a dropout layer
+#apply a dropout layer to output
 rnn_dropout = mx.sym.Dropout(rnn_component, p=config.dropout)
 
 print("\n\t#################################\n\
@@ -216,55 +202,57 @@ print("adding skip connections for cells ", p, " intervals apart...")
 skipcell_outputs = []
 for i, recurrent_cell in enumerate(config.skiprcells):
 
-    #unroll the rnn cell, obtaining a symbol each time
-    # Each symbol is of shape (batch_size, hidden_dim)
+    #unroll the rnn cell, obtaining an output and state symbol each time
     outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_dropout, merge_outputs=False, layout="NTC")
 
     #for each unrolled timestep
     counter = 0
-    step_outputs = []
-    for i, current_cell in enumerate(outputs):
+    connected_outputs = []
+    for i, current_cell in enumerate(reversed(outputs)):
 
         #try adding a concatenated skip connection
         try:
 
-            #get seasonal cell p steps behind
+            #get seasonal cell p steps apart
             skip_cell = outputs[i + p]
 
             #connect this cell to is seasonal neighbour
             cell_pair = [current_cell, skip_cell]
             concatenated_pair = mx.sym.concat(*cell_pair, dim=1)
 
-            #append symbol to a list
-            step_outputs.append(concatenated_pair)
+            #prepend symbol to a list
+            connected_outputs.insert(0, concatenated_pair)
 
             counter += 1
 
         except IndexError:
-            #if we cannot concatenate just leave as is
 
-            #append symbol to a list
-            step_outputs.append(current_cell)
+            #prepend symbol to a list without skip connection
+            connected_outputs.insert(0, current_cell)
 
-    #concatenate output for each timestep (shape is now (batch_size, state size * unrolls))
-    concatenated_output = mx.sym.concat(*step_outputs, dim=1)
+    selected_outputs = []
+    for i, current_cell in enumerate(connected_outputs):
+
+        t = i + 1
+
+        #use p hidden states of Recurrent-skip component from time stamp t − p + 1 to t as outputs
+        if t > conv_concat_shape[1] - p:
+
+            selected_outputs.append(current_cell)
+
+    #concatenate outputs
+    concatenated_output = mx.sym.concat(*selected_outputs, dim=1)
 
     #append to list
     skipcell_outputs.append(concatenated_output)
 
-    print("\n\t", counter, " skip connections created...")
-    print("\n\t each of the ", counter, " pairs of connected hidden cells is of shape: ",
-            concatenated_pair.infer_shape(seq_data=input_feature_shape)[1][0])
-    print("\n\teach of the ", conv_concat_shape[1] - counter, " remaining unrolled hidden cells in the skip-RNN is of shape: ",
-                current_cell.infer_shape(seq_data=input_feature_shape)[1][0])
-    print("\n\tresulting shape should be", (config.batch_size, (counter) *(config.recurrent_state_size * 2) + 
-                                            (conv_concat_shape[1] - counter) * config.recurrent_state_size))
+print("\n\t", len(selected_outputs), " hidden cells used in output of shape: ",
+        concatenated_pair.infer_shape(seq_data=input_feature_shape)[1][0], " after adding skip connections")
 
+print("\n\tconcatenated output shape for each skipRNN cell type: ",
+      concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0])
 
-print("\n\tconcatenated unrolled recurrent shape for each of the ", len(config.skiprcells), 
-    " combined skip pairs after adding connections: ", concatenated_output.infer_shape(seq_data=input_feature_shape)[1][0], "\n")
-
-#concatenate output from each type of recurrent cell (shape is now (batch_size, len(config.cells) * statesize * unrolls)) 
+#concatenate output from each type of recurrent cell
 skiprnn_component = mx.sym.concat(*skipcell_outputs, dim=1)
 print("\ncombined flattened recurrent-skip shape : ", skiprnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
