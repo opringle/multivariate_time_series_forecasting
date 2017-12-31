@@ -7,12 +7,18 @@
 
 - Model in the paper predicts with h = 3 on electricity dataset
 - L2 model achieves *RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941* on test data
+- My results are *RSE = 0.151, RAE = 0.433 and CORR = 10.2* on validation data
 
 ## To do
 
-1. Which symbol in the unroll list is t=0? First or last?
-2. Confirm AR component is correct? Needs regularization parameter lambda???!?!?...
-3. Train/save model and compute evaluation metric to ensure they are working correctly (which I know they aren't)
+1. Train/save model and compute evaluation metric to ensure they are working correctly (which I know they aren't)
+
+- correlation matches code, matches during prediction and training and seems sensible :)
+- RAE and RSE match paper but are different during prediction and training prediction...?!?!
+
+2. Which symbol in the unroll list is t=0? First or last?
+3. Confirm AR component is correct? Needs regularization parameter lambda?
+4. Research hyperparameter optimization in MXNet
 
 ## Hyperparameters...
 
@@ -25,6 +31,5 @@
 - AR lambda = {0.1,1,10}
 - Adam optimizer
 - Dropout after every layer =  {0.1, 0.2}
-- 
 
 

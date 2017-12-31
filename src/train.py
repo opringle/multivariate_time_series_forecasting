@@ -320,46 +320,43 @@ def rse(label, pred):
     """computes the root relative squared error"""
 
     #compute the root of the sum of the squared error
-    numerator = np.sqrt(np.sum(np.square(label - pred)))
+    numerator = np.sqrt(np.sum(np.square(label - pred), axis = None))
 
-    #compute the root of the sum of the squared error if we were to simply predict the average of the previous values
-    denominator = np.sqrt(np.sum(np.square(label - np.mean(label))))
+    #compute the RMSE if we were to simply predict the average of the previous values
+    denominator = np.sqrt(np.sum(np.square(label - np.mean(label, axis = None)), axis=None))
 
     return numerator / denominator
-
-eval_metric_1 = mx.metric.create(rse)
 
 #relative absolute error
 def rae(label, pred):
     """computes the relative absolute error"""
 
     #compute the root of the sum of the squared error
-    numerator = np.sqrt(np.sum(np.abs(label - pred)))
+    numerator = np.sum(np.abs(label - pred), axis = None)
 
-    #compute the root of the sum of the squared error if we were to simply predict the average of the previous values
-    denominator = np.sqrt(np.sum(np.abs(label - np.mean(label))))
+    #compute AE if we were to simply predict the average of the previous values
+    denominator = np.sum(np.abs(label - np.mean(label, axis = None)), axis=None)
 
     return numerator / denominator
-
-eval_metric_2 = mx.metric.create(rae)
 
 #empirical correlation coefficient
 def corr(label, pred):
     """computes the empirical correlation coefficient"""
 
     #compute the root of the sum of the squared error
-    numerator = np.sum((label - np.mean(label))*(pred - np.mean(pred)), axis = 0)
+    numerator1 = label - np.mean(label, axis=0)
+    numerator2 = pred - np.mean(pred, axis = 0)
+    numerator = np.mean(numerator1 * numerator2, axis=0)
 
     #compute the root of the sum of the squared error if we were to simply predict the average of the previous values
-    denominator = np.sqrt(np.sum(np.square(label - np.mean(label))*np.square(pred - np.mean(pred)), axis = 0))
+    denominator = np.std(label, axis=0) * np.std(pred, axis=0)
 
     #value passed here should be 321 numbers
-    return (1/label.shape[1]) * np.sum(numerator / denominator)
-
-eval_metric_3 = mx.metric.create(corr)
+    return np.mean(numerator / denominator)
 
 #create a composite metric to see all whilst training
-metrics = mx.metric.CompositeEvalMetric(metrics=[eval_metric_1, eval_metric_2, eval_metric_3])
+def metrics(label, pred):
+    return [rse(label, pred), rae(label, pred), corr(label, pred)]
 
 ################
 # #fit the model
@@ -382,32 +379,23 @@ try:
         
         train_iter.reset()
         val_iter.reset()
-        metrics.reset()
+
         for batch in train_iter:
             model.forward(batch, is_train=True)       # compute predictions
-            # accumulate prediction accuracy
-            model.update_metric(metrics, batch.label)
             model.backward()                          # compute gradients
             model.update()                            # update parameters
 
-        print('Epoch %d, Training %s' % (epoch, metrics.get()))
+        # compute train metrics
+        pred = model.predict(train_iter).asnumpy()
+        label = y_train
 
-        metrics.reset()
-        for batch in val_iter:
-            model.forward(batch, is_train=False)       # compute predictions
-            # accumulate prediction accuracy
-            model.update_metric(metrics, batch.label)
+        print('Epoch %d, Training %s' % (epoch, metrics(label, pred)))
+        
+        # compute test metrics
+        pred = model.predict(val_iter).asnumpy()
+        label = y_valid
 
-        print('Epoch %d, Validation %s' % (epoch, metrics.get()))
-
-        # metrics.reset()
-        # for batch in test_iter:
-        #     model.forward(batch, is_train=False)       # compute predictions
-        #     # accumulate prediction accuracy
-        #     model.update_metric(metrics, batch.label)
-
-        # print('Epoch %d, Test %s' % (epoch, metrics.get()))
-
+        print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
 
 ################
 # save model after epochs or if user exits early
@@ -423,3 +411,21 @@ except KeyboardInterrupt:
         save_optimizer_states=False,
     )
     print('\n' * 5, '-' * 89)
+
+#################################
+#  save predictions on input data
+#################################
+
+val_pred = model.predict(val_iter).asnumpy()
+
+np.save("../results/val_pred.npy", val_pred)
+np.save("../results/val_label.npy", y_valid)
+
+#################################
+# compute  metrics on predictions
+#################################
+
+y_p = val_pred
+y_t = y_valid
+
+print(rse(y_p, y_t), "\n", rae(y_p, y_t), "\n", corr(y_p, y_t))
