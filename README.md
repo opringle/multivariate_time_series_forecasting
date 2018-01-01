@@ -11,14 +11,9 @@
 
 ## To do
 
-1. Train/save model and compute evaluation metric to ensure they are working correctly (which I know they aren't)
-
-- correlation matches code, matches during prediction and training and seems sensible :)
-- RAE and RSE match paper but are different during prediction and training prediction...?!?!
-
-2. Which symbol in the unroll list is t=0? First or last?
-3. Confirm AR component is correct? Needs regularization parameter lambda?
-4. Research hyperparameter optimization in MXNet
+1. Confirm AR component is correct. Needs regularization parameter lambda according to paper...
+2. Find out what hyperparameters where used for best model (just ask)
+3. Apply hyperparameter optization superior to grid search
 
 ## Hyperparameters...
 

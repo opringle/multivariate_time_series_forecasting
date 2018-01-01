@@ -317,27 +317,38 @@ model = mx.mod.Module(symbol=batmans_NN,
 
 #root relative squared error
 def rse(label, pred):
-    """computes the root relative squared error"""
+    """computes the root relative squared error
+    (condensed using standard deviation formula)"""
 
     #compute the root of the sum of the squared error
-    numerator = np.sqrt(np.sum(np.square(label - pred), axis = None))
+    numerator = np.sqrt(np.mean(np.square(label - pred), axis = None))
+    #numerator = np.sqrt(np.sum(np.square(label - pred), axis=None))
 
     #compute the RMSE if we were to simply predict the average of the previous values
-    denominator = np.sqrt(np.sum(np.square(label - np.mean(label, axis = None)), axis=None))
+    denominator = np.std(label, axis = None)
+    #denominator = np.sqrt(np.sum(np.square(label - np.mean(label, axis = None)), axis=None))
 
     return numerator / denominator
+
+
+_rse = mx.metric.create(rse)
 
 #relative absolute error
 def rae(label, pred):
-    """computes the relative absolute error"""
+    """computes the relative absolute error
+    (condensed using standard deviation formula)"""
 
     #compute the root of the sum of the squared error
-    numerator = np.sum(np.abs(label - pred), axis = None)
+    numerator = np.mean(np.abs(label - pred), axis=None)
+    #numerator = np.sum(np.abs(label - pred), axis = None)
 
     #compute AE if we were to simply predict the average of the previous values
-    denominator = np.sum(np.abs(label - np.mean(label, axis = None)), axis=None)
+    denominator = np.mean(np.abs(label - np.mean(label, axis=None)), axis=None)
+    #denominator = np.sum(np.abs(label - np.mean(label, axis = None)), axis=None)
 
     return numerator / denominator
+
+_rae = mx.metric.create(rae)
 
 #empirical correlation coefficient
 def corr(label, pred):
@@ -354,7 +365,15 @@ def corr(label, pred):
     #value passed here should be 321 numbers
     return np.mean(numerator / denominator)
 
-#create a composite metric to see all whilst training
+_corr = mx.metric.create(corr)
+
+#use mxnet native metric function
+# eval_metrics = mx.metric.CompositeEvalMetric()
+# for child_metric in [_rse, _rae, _corr]:
+#     eval_metrics.add(child_metric)
+
+
+#create a composite metric manually as a sanity check whilst training
 def metrics(label, pred):
     return [rse(label, pred), rae(label, pred), corr(label, pred)]
 
@@ -379,17 +398,20 @@ try:
         
         train_iter.reset()
         val_iter.reset()
+        #eval_metrics.reset()
 
         for batch in train_iter:
-            model.forward(batch, is_train=True)       # compute predictions
-            model.backward()                          # compute gradients
-            model.update()                            # update parameters
+            model.forward(batch, is_train=True)             # compute predictions
+            model.backward()                                # compute gradients
+            model.update()                                  # update parameters
+            #model.update_metric(eval_metrics, batch.label)  # update metrics
 
         # compute train metrics
         pred = model.predict(train_iter).asnumpy()
         label = y_train
 
-        print('Epoch %d, Training %s' % (epoch, metrics(label, pred)))
+        print('\n', 'Epoch %d, Training %s' % (epoch, metrics(label, pred)))
+        #print('Epoch %d, Training %s' % (epoch, eval_metrics.get()))
         
         # compute test metrics
         pred = model.predict(val_iter).asnumpy()
@@ -412,20 +434,23 @@ except KeyboardInterrupt:
     )
     print('\n' * 5, '-' * 89)
 
-#################################
-#  save predictions on input data
-#################################
+# #################################
+# #  save predictions on input data
+# #################################
 
-val_pred = model.predict(val_iter).asnumpy()
+# val_pred = model.predict(val_iter).asnumpy()
 
-np.save("../results/val_pred.npy", val_pred)
-np.save("../results/val_label.npy", y_valid)
+# np.save("../results/val_pred.npy", val_pred)
+# np.save("../results/val_label.npy", y_valid)
 
-#################################
-# compute  metrics on predictions
-#################################
+# #################################
+# # compute  metrics on validation predictions as another sanity check
+# #################################
 
-y_p = val_pred
-y_t = y_valid
+# y_p = val_pred
+# y_t = y_valid
 
-print(rse(y_p, y_t), "\n", rae(y_p, y_t), "\n", corr(y_p, y_t))
+# print(rse(y_t, y_p), "\n", rae(y_t, y_p), "\n", corr(y_t, y_p))
+
+
+
