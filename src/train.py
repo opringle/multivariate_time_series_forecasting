@@ -429,6 +429,7 @@ try:
 
         print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
 
+
 ################
 # save model after epochs or if user exits early
 ################
@@ -438,20 +439,14 @@ except KeyboardInterrupt:
     print('Exiting from training early, saving model...')
 
     model.save_checkpoint(
-        prefix='my_model',
+        prefix='elec_model',
         epoch=config.num_epoch,
-        save_optimizer_states=False,
-    )
+        save_optimizer_states=False)
     print('\n' * 5, '-' * 89)
 
-# #################################
-# #  save predictions on input data
-# #################################
-
-# val_pred = model.predict(val_iter).asnumpy()
-
-# np.save("../results/val_pred.npy", val_pred)
-# np.save("../results/val_label.npy", y_valid)
-
+model.save_checkpoint(
+    prefix='elec_model',
+    epoch=config.num_epoch,
+    save_optimizer_states=False)
 
 
