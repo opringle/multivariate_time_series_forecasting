@@ -59,11 +59,11 @@ y_valid = y_ts[training_examples:training_examples + valid_examples]
 x_test = x_ts[training_examples + valid_examples:]
 y_test = y_ts[training_examples + valid_examples:]
 
-print("\nsingle X, Y record example:\n\n")
-print(x_train[:1])
-print(y_train[:1])
-print(x_train[1:2])
-print(y_train[1:2])
+# print("\nsingle X, Y record example:\n\n")
+# print(x_train[:1])
+# print(y_train[:1])
+# print(x_train[1:2])
+# print(y_train[1:2])
 
 print("\ntraining examples: ", x_train.shape[0],
         "\n\nvalidation examples: ", x_valid.shape[0],
@@ -264,15 +264,25 @@ print("\n\t#################################\n\
        #################################\n")
 
 #AR component simply says the next prediction 
-# is the some constant times all the previous values available (q).
+# is the some constant times all the previous values available for that time series
 
-#pass recurrent layer to fully connected layer with q * n neurons (same as AR)
-ar_component = mx.sym.FullyConnected(data=seq_data, num_hidden=config.q)# * x.shape[1])
-print("\nautoregressive layer output shape: ", ar_component.infer_shape(seq_data=input_feature_shape)[1][0])
+auto_list = []
+for i in list(range(x.shape[1])):
 
-#pass to fully connected layer to map to a single value per time series
-ar_output = mx.sym.FullyConnected(data=ar_component, num_hidden=x.shape[1])
-print("\nAR output shape : ", ar_output.infer_shape(seq_data=input_feature_shape)[1][0])
+    #get a symbol representing data in each individual time series
+    time_series = mx.sym.slice_axis(data = seq_data, axis = 2, begin = i, end = i+1)
+
+    #pass to a fully connected layer
+    fc_ts = mx.sym.FullyConnected(data=time_series, num_hidden=1)
+
+    auto_list.append(fc_ts)
+
+print("\neach time series shape: ", time_series.infer_shape(seq_data=input_feature_shape)[1][0])
+
+
+#concatenate fully connected outputs
+ar_output = mx.sym.concat(*auto_list, dim=1)
+print("\nar component shape: ", ar_output.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #do not apply activation function since we want this to be linear
 
@@ -375,7 +385,7 @@ _corr = mx.metric.create(corr)
 
 #create a composite metric manually as a sanity check whilst training
 def metrics(label, pred):
-    return [rse(label, pred), rae(label, pred), corr(label, pred)]
+    return ["RSE: ", rse(label, pred), "RAE: ", rae(label, pred), "CORR: ", corr(label, pred)]
 
 ################
 # #fit the model
@@ -442,15 +452,6 @@ except KeyboardInterrupt:
 
 # np.save("../results/val_pred.npy", val_pred)
 # np.save("../results/val_label.npy", y_valid)
-
-# #################################
-# # compute  metrics on validation predictions as another sanity check
-# #################################
-
-# y_p = val_pred
-# y_t = y_valid
-
-# print(rse(y_t, y_p), "\n", rae(y_t, y_p), "\n", corr(y_t, y_p))
 
 
 

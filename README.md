@@ -7,13 +7,18 @@
 
 - Model in the paper predicts with h = 3 on electricity dataset
 - L2 model achieves *RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941* on test data
-- My results are *RSE = 0.151, RAE = 0.433 and CORR = 10.2* on validation data
+- My results are *RSE = , RAE =  and CORR =* on validation data
 
 ## To do
 
 1. Confirm AR component is correct. Needs regularization parameter lambda according to paper...
-2. Find out what hyperparameters where used for best model (just ask)
-3. Apply hyperparameter optization superior to grid search
+2. Train/save a model with similar performance to the scores in the paper
+
+- Find out what hyperparameters where used for best model (just ask) or apply hyperparameter optization to find them
+- Find a good learning rate to prevent NAN when calculating corr metric
+
+3. Plot train/test predictions in R for blog post.
+4. Create issue in MXNet repo showing your blog post and code
 
 ## Hyperparameters...
 
