@@ -15,7 +15,7 @@ $ gunzip electricity.txt.gz
 
 Now we need to preprocess the data.  Each feature is the previous q values of each time series(see figure above).  Each label is the value of each of the 321 time series, h steps ahead.
 
-```
+```python
 #modules
 import math
 import os
@@ -117,7 +117,7 @@ Now that we have our input data we are ready to start building the network graph
 
 The data is zero padded on one side before being passed into the convolutional layer, ensuring the output from each kernel has the same dimensions, regardless of the filter size.  Each filter slides over the input data producing a 1D array of length q.  Relu activation is used as per the paper.  The resulting output from the convolutional component is of shape (batch size, q, total filters).
 
-```
+```python
 ###############################################
 #define input data iterators for training and testing
 ###############################################
@@ -201,7 +201,7 @@ conv_dropout = mx.sym.Dropout(conv_concat, p = dropout)
 
 The output from the convolutional layer is passed to the recurrent component.  A gated recurrent unit is unrolled through q time steps.  The output of the last time step is taken.
 
-```
+```python
 print("\n\t#################################\n\
        #recurrent component:\n\
        #################################\n")
@@ -234,7 +234,7 @@ rnn_dropout = mx.sym.Dropout(rnn_component, p=dropout)
 
 The output from the convolutional layer is also passed to the recurrent-skip component.  Again a gated recurrent unit is unrolled through q time steps.  Unrolled units a prespecified time interval (seasonal period) apart are connected. In practice recurrent cells do not capture long term dependencies.  We are predicting electricity consumption, so want to connect units 24 hours apart.
 
-```
+```python
 print("\n\t#################################\n\
        #recurrent-skip component:\n\
        #################################\n")
@@ -307,7 +307,7 @@ skiprnn_dropout = mx.sym.Dropout(skiprnn_component, p=dropout)
 
 The final component is a simple autoregressive layer.  This splits the input data into 321 individual time series and passes each to a fully connected layer of size 1, with no activation function.  The effect of this is to predict the next value as a linear combination of the previous q values.
 
-```
+```python
 print("\n\t#################################\n\
        #autoregressive component:\n\
        #################################\n")
@@ -335,7 +335,7 @@ print("\nar component shape: ", ar_output.infer_shape(
 
 Now lets combine all the components, define a loss function and create a trainable module from the final symbol.
 
-```
+```python
 print("\n\t#################################\n\
        #combine AR and NN components:\n\
        #################################\n")
@@ -378,7 +378,7 @@ We are ready to start training, however, before we do so lets create some custom
 
 Note: although MXNet has functions for creating custom metrics, I found the metric output of my implementation varied with batch size, so defined them explicity.
 
-```
+```python
 ####################################
 #define evaluation metrics to show when training
 #####################################
@@ -448,7 +448,7 @@ def metrics(label, pred):
 
 We are done!  Time to train. The hyperparameters previously specified resulted in comparible performance to the results in the paper (*RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941*) with horizon = 3 hours.
 
-```
+```python
 ################
 # #fit the model
 ################
