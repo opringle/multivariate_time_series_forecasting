@@ -1,3 +1,21 @@
+# Deep Learning for Multivariate Time Series Forecasting using Apache MXNet
+
+This tutorial shows how to implement LSTNet, a multivariate time series forecasting model submitted by Wei-Cheng Chang, Yiming Yang, Hanxiao Liu and Guokun Lai in their paper [Modeling Long- and Short-Term Temporal Patterns](https://arxiv.org/pdf/1703.07015.pdf) in March 2017.  This model achieved state of the art performance on 3 of the 4 public datasets it was evaluated on.
+
+We will use MXNet to train a neural network with convolutional, recurrent, recurrent-skip and autoregressive components.  The result is a model that predicts the future value for all input variables, given a specific horizon.
+
+![](./model_architecture.png)
+
+Our first step will be to download and unpack the public electricity dataset used in the paper.  This dataset comprises measurements of electricity consumption in kWh every hour from 2012 to 2014 for 321 different clients.
+
+```
+$ wget https://github.com/laiguokun/multivariate-time-series-data/raw/master/electricity/electricity.txt.gz
+$ gunzip electricity.txt.gz
+```
+
+Now we need to preprocess the data.  Each feature is the previous q values of each time series(see figure above).  Each label is the value of each of the 321 time series, h steps ahead.
+
+```
 #modules
 import math
 import os
@@ -5,6 +23,7 @@ import sys
 import numpy as np
 import math
 import mxnet as mx
+import pandas as pd
 
 #custom modules
 import config
@@ -13,44 +32,72 @@ import config
 #load input data
 ##############################################
 
-if config.q < min(config.filter_list):
-    print("\n\n\n\t\tINCREASE q...")
+#read tar.gz data into a pandas dataframe
+df = pd.read_csv("./electricity.txt", sep=",", header=None)
 
-#read in multivariate time series data
-x = np.load("../data/electric.npy")
+#convert to numpy array
+x = df.astype(float).as_matrix()
 
 print("\n\tlength of time series: ", x.shape[0])
 
-if config.max_training_examples:
-    x = x[:config.max_training_examples]
+################################################
+# define model hyperparameters and preprocessing parameters
+################################################
+
+#input data parameters
+max_training_examples = None  # limit the number of training examples used
+split = [0.6, 0.2, 0.2] # the proportion of training, validation and testing examples
+horizon = 3  # how many time steps ahead do we wish to predict?
+time_interval = 60 * 60  # seconds between feature values (data defined)
+
+#model hyperparameters
+batch_size = 128  # number of examples to pass into the network/use to compute gradient of the loss function
+num_epoch = 100  # how many times to backpropogate and update weights
+seasonal_period = 24 * 60 * 60  # seconds between important measurements (tune)
+q = max(24 * 7, math.ceil(seasonal_period / time_interval)) # windowsize used to make a prediction
+filter_list = [6] #size of each filter we wish to apply
+num_filter = 50  # number of each filter size
+recurrent_state_size = 50  # number of hidden units for each unrolled recurrent layer
+recurrent_skip_state_size = 20 # number of hidden units for each unrolled recurrent-skip layer
+optimizer = 'Adam'
+optimizer_params = {'learning_rate': 0.001,
+                    'beta1': 0.9,
+                    'beta2': 0.999}
+dropout = 0.1  # dropout probability applied after convolutional/recurrent and autoregressive layers
+rcells = [mx.rnn.GRUCell(num_hidden=recurrent_state_size)] #recurrent cell types we wish to use
+skiprcells = [mx.rnn.GRUCell(num_hidden=recurrent_skip_state_size, prefix="skip_")] # recurrent-skip cell types we wish to use
+
+#computational parameters
+context = mx.cpu()  # train on cpu or gpu
+
 
 ##############################################
 # loop through data constructing features/labels
 ##############################################
 
 #create arrays for storing values in
-x_ts = np.zeros((x.shape[0] - config.q,  config.q, x.shape[1]))
-y_ts = np.zeros((x.shape[0] - config.q, x.shape[1]))
+x_ts = np.zeros((x.shape[0] - q,  q, x.shape[1]))
+y_ts = np.zeros((x.shape[0] - q, x.shape[1]))
 
 #loop through collecting records for ts analysis depending on q
 for n in list(range(x.shape[0])):
 
-    if n + 1 < config.q:
+    if n + 1 < q:
         continue
 
-    if n + 1 + config.horizon > x.shape[0]:
+    if n + 1 + horizon > x.shape[0]:
         continue
 
     else:
-        y_n = x[n+config.horizon,:]
-        x_n = x[n+1 - config.q:n+1,:]
+        y_n = x[n+horizon,:]
+        x_n = x[n+1 - q:n+1,:]
 
-    x_ts[n - config.q] = x_n
-    y_ts[n - config.q] = y_n
+    x_ts[n - q] = x_n
+    y_ts[n - q] = y_n
 
 #split into training and testing data
-training_examples = int(x_ts.shape[0] * config.split[0])
-valid_examples = int(x_ts.shape[0] * config.split[1])
+training_examples = int(x_ts.shape[0] * split[0])
+valid_examples = int(x_ts.shape[0] * split[1])
 
 x_train = x_ts[:training_examples]
 y_train = y_ts[:training_examples]
@@ -59,40 +106,39 @@ y_valid = y_ts[training_examples:training_examples + valid_examples]
 x_test = x_ts[training_examples + valid_examples:]
 y_test = y_ts[training_examples + valid_examples:]
 
-# print("\nsingle X, Y record example:\n\n")
-# print(x_train[:1])
-# print(y_train[:1])
-# print(x_train[1:2])
-# print(y_train[1:2])
-
 print("\ntraining examples: ", x_train.shape[0],
         "\n\nvalidation examples: ", x_valid.shape[0],
         "\n\ntest examples: ", x_test.shape[0], 
-        "\n\nwindow size: ", config.q,
-        "\n\nskip length p: ", config.seasonal_period / config.time_interval)
+        "\n\nwindow size: ", q,
+        "\n\nskip length p: ", seasonal_period / time_interval)
+```
 
+Now that we have our input data we are ready to start building the network graph.   First lets consider the data iterators and convolutional component.  
+
+The data is zero padded on one side before being passed into the convolutional layer, ensuring the output from each kernel has the same dimensions, regardless of the filter size.  Each filter slides over the input data producing a 1D array of length q.  Relu activation is used as per the paper.  The resulting output from the convolutional component is of shape (batch size, q, total filters).
+
+```
 ###############################################
 #define input data iterators for training and testing
 ###############################################
 
 train_iter = mx.io.NDArrayIter(data={'seq_data': x_train},
                                label={'seq_label': y_train},
-                               batch_size=config.batch_size)
+                               batch_size=batch_size)
 
 val_iter = mx.io.NDArrayIter(data={'seq_data': x_valid},
                              label={'seq_label': y_valid},
-                             batch_size=config.batch_size)
+                             batch_size=batch_size)
 
 test_iter = mx.io.NDArrayIter(data={'seq_data': x_test},
                              label={'seq_label': y_test},
-                             batch_size=config.batch_size)
+                             batch_size=batch_size)
 
 #print input shapes
 input_feature_shape = train_iter.provide_data[0][1]
 input_label_shape = train_iter.provide_label[0][1]
 print("\nfeature input shape: ", input_feature_shape,
       "\nlabel input shape: ", input_label_shape)
-
 
 ####################################
 # define neural network graph
@@ -102,11 +148,8 @@ print("\nfeature input shape: ", input_feature_shape,
 seq_data = mx.symbol.Variable(train_iter.provide_data[0].name)
 seq_label = mx.sym.Variable(train_iter.provide_label[0].name)
 
-# scale input data so features are all between 0 and 1 (may not need this)
-normalized_seq_data = mx.sym.BatchNorm(data = seq_data)
-
-# reshape data before applying convolutional layer (takes 4D shape incase you ever work with images)
-conv_input = mx.sym.Reshape(data=seq_data, shape=(config.batch_size, 1, config.q, x.shape[1]))
+# reshape data before applying convolutional layer (takes 4D shape)
+conv_input = mx.sym.Reshape(data=seq_data, shape=(batch_size, 1, q, x.shape[1]))
 
 
 print("\n\t#################################\n\
@@ -115,7 +158,7 @@ print("\n\t#################################\n\
 
 #create many convolutional filters to slide over the input
 outputs = []
-for i, filter_size in enumerate(config.filter_list):
+for i, filter_size in enumerate(filter_list):
 
         # zero pad the input array, adding rows at the top only
         # this ensures the number output rows = number input rows after applying kernel
@@ -124,25 +167,25 @@ for i, filter_size in enumerate(config.filter_list):
         padi_shape = padi.infer_shape(seq_data=input_feature_shape)[1][0]
 
         # apply convolutional layer (the result of each kernel position is a single number)
-        convi = mx.sym.Convolution(data=padi, kernel=(filter_size, x.shape[1]), num_filter=config.num_filter)
+        convi = mx.sym.Convolution(data=padi, kernel=(filter_size, x.shape[1]), num_filter=num_filter)
         convi_shape = convi.infer_shape(seq_data=input_feature_shape)[1][0]
 
         #apply relu activation function as per paper
         acti = mx.sym.Activation(data=convi, act_type='relu')
 
-        #transpose output to shape in preparation for recurrent layer (batches, q, num filter, 1)
+        #transpose output shape in preparation for recurrent layer (batches, q, num filter, 1)
         transposed_convi = mx.symbol.transpose(data=acti, axes= (0,2,1,3))
         transposed_convi_shape = transposed_convi.infer_shape(seq_data=input_feature_shape)[1][0]
 
-        #reshape to (batches, q, num filter)
-        reshaped_transposed_convi = mx.sym.Reshape(data=transposed_convi, target_shape=(config.batch_size, config.q, config.num_filter))
+        #reshape to (batches, q, num filter) for recurrent layers
+        reshaped_transposed_convi = mx.sym.Reshape(data=transposed_convi, target_shape=(batch_size, q, num_filter))
         reshaped_transposed_convi_shape = reshaped_transposed_convi.infer_shape(seq_data=input_feature_shape)[1][0]
 
         #append resulting symbol to a list
         outputs.append(reshaped_transposed_convi)
 
         print("\n\tpadded input size: ", padi_shape)
-        print("\n\t\tfilter size: ", (filter_size, x.shape[1]), " , number of filters: ", config.num_filter)
+        print("\n\t\tfilter size: ", (filter_size, x.shape[1]), " , number of filters: ", num_filter)
         print("\n\tconvi output layer shape (notice length is maintained): ", convi_shape)
         print("\n\tconvi output layer after transposing: ", transposed_convi_shape)
         print("\n\tconvi output layer after reshaping: ", reshaped_transposed_convi_shape)
@@ -153,15 +196,19 @@ conv_concat_shape = conv_concat.infer_shape(seq_data=input_feature_shape)[1][0]
 print("\nconcat output layer shape: ", conv_concat_shape)
 
 #apply a dropout layer
-conv_dropout = mx.sym.Dropout(conv_concat, p = config.dropout)
+conv_dropout = mx.sym.Dropout(conv_concat, p = dropout)
+```
 
+The output from the convolutional layer is passed to the recurrent component.  A gated recurrent unit is unrolled through q time steps.  The output of the last time step is taken.
+
+```
 print("\n\t#################################\n\
        #recurrent component:\n\
        #################################\n")
 
 #define a gated recurrent unit cell, which we can unroll into many symbols based on our desired time dependancy
 cell_outputs = []
-for i, recurrent_cell in enumerate(config.rcells):
+for i, recurrent_cell in enumerate(rcells):
 
     #unroll the lstm cell, obtaining a symbol each time step
     outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_dropout, merge_outputs=False, layout="NTC")
@@ -182,25 +229,23 @@ rnn_component = mx.sym.concat(*cell_outputs, dim=1)
 print("\nshape after combining RNN cell types: ", rnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #apply a dropout layer to output
-rnn_dropout = mx.sym.Dropout(rnn_component, p=config.dropout)
+rnn_dropout = mx.sym.Dropout(rnn_component, p=dropout)
+```
 
+The output from the convolutional layer is also passed to the recurrent-skip component.  Again a gated recurrent unit is unrolled through q time steps.  Unrolled units a prespecified time interval (seasonal period) apart are connected. In practice recurrent cells do not capture long term dependencies.  We are predicting electricity consumption, so want to connect units 24 hours apart.
+
+```
 print("\n\t#################################\n\
        #recurrent-skip component:\n\
        #################################\n")
 
-# connect hidden cells that are a defined time interval apart,
-# because in practice very long term dependencies are not captured by LSTM/GRU
-# eg if you are predicting electricity consumption you want to connect data 24hours apart
-# and if your data is every 60s you make a connection between the hidden states at time t and at time t + 24h
-# this connection would not be made by an LSTM since 24 is so many hidden states away
-
 #define number of cells to skip through to get a certain time interval back from current hidden state
-p =int(config.seasonal_period / config.time_interval)
+p =int(seasonal_period / time_interval)
 print("adding skip connections for cells ", p, " intervals apart...")
 
 #define a gated recurrent unit cell, which we can unroll into many symbols based on our desired time dependancy
 skipcell_outputs = []
-for i, recurrent_cell in enumerate(config.skiprcells):
+for i, recurrent_cell in enumerate(skiprcells):
 
     #unroll the rnn cell, obtaining an output and state symbol each time
     outputs, states = recurrent_cell.unroll(length=conv_concat_shape[1], inputs=conv_dropout, merge_outputs=False, layout="NTC")
@@ -257,20 +302,21 @@ skiprnn_component = mx.sym.concat(*skipcell_outputs, dim=1)
 print("\ncombined flattened recurrent-skip shape : ", skiprnn_component.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #apply a dropout layer
-skiprnn_dropout = mx.sym.Dropout(skiprnn_component, p=config.dropout)
+skiprnn_dropout = mx.sym.Dropout(skiprnn_component, p=dropout)
+```
 
+The final component is a simple autoregressive layer.  This splits the input data into 321 individual time series and passes each to a fully connected layer of size 1, with no activation function.  The effect of this is to predict the next value as a linear combination of the previous q values.
+
+```
 print("\n\t#################################\n\
        #autoregressive component:\n\
        #################################\n")
-
-#AR component simply says the next prediction 
-# is the some constant times all the previous values available for that time series
 
 auto_list = []
 for i in list(range(x.shape[1])):
 
     #get a symbol representing data in each individual time series
-    time_series = mx.sym.slice_axis(data = seq_data, axis = 2, begin = i, end = i+1)
+    time_series = mx.sym.slice_axis(data=seq_data, axis=2, begin=i, end=i + 1)
 
     #pass to a fully connected layer
     fc_ts = mx.sym.FullyConnected(data=time_series, num_hidden=1)
@@ -279,34 +325,41 @@ for i in list(range(x.shape[1])):
 
 print("\neach time series shape: ", time_series.infer_shape(seq_data=input_feature_shape)[1][0])
 
-
 #concatenate fully connected outputs
 ar_output = mx.sym.concat(*auto_list, dim=1)
-print("\nar component shape: ", ar_output.infer_shape(seq_data=input_feature_shape)[1][0])
+print("\nar component shape: ", ar_output.infer_shape(
+    seq_data=input_feature_shape)[1][0])
 
 #do not apply activation function since we want this to be linear
+```
 
+Now lets combine all the components, define a loss function and create a trainable module from the final symbol.
+
+```
 print("\n\t#################################\n\
        #combine AR and NN components:\n\
        #################################\n")
 
 #combine model components
-neural_components = mx.sym.concat(*[rnn_dropout, skiprnn_dropout], dim = 1)
+neural_components = mx.sym.concat(*[rnn_dropout, skiprnn_dropout], dim=1)
 
 #pass to fully connected layer to map to a single value
-neural_output = mx.sym.FullyConnected(data=neural_components, num_hidden=x.shape[1])
-print("\nNN output shape : ", neural_output.infer_shape(seq_data=input_feature_shape)[1][0])
+neural_output = mx.sym.FullyConnected(
+    data=neural_components, num_hidden=x.shape[1])
+print("\nNN output shape : ", neural_output.infer_shape(
+    seq_data=input_feature_shape)[1][0])
 
 #sum the output from AR and deep learning
 model_output = neural_output + ar_output
-print("\nshape after adding autoregressive output: ", model_output.infer_shape(seq_data=input_feature_shape)[1][0])  
+print("\nshape after adding autoregressive output: ",
+      model_output.infer_shape(seq_data=input_feature_shape)[1][0])
 
 #########################################
 # loss function
 #########################################
 
 #compute the gradient of the L2 loss
-loss_grad = mx.sym.LinearRegressionOutput(data = model_output, label = seq_label)
+loss_grad = mx.sym.LinearRegressionOutput(data=model_output, label=seq_label)
 
 #set network point to back so name is interpretable
 batmans_NN = loss_grad
@@ -316,11 +369,16 @@ batmans_NN = loss_grad
 #########################################
 
 model = mx.mod.Module(symbol=batmans_NN,
-                      context=config.context,
+                      context=context,
                       data_names=[v.name for v in train_iter.provide_data],
                       label_names=[v.name for v in train_iter.provide_label])
+```
 
+We are ready to start training, however, before we do so lets create some custom metrics to print during training.  Please see the paper for a definition of the three metrics: Relative square error, relative absolute error and correlation.
 
+Note: although MXNet has functions for creating custom metrics, I found the metric output of my implementation varied with batch size, so defined them explicity.
+
+```
 ####################################
 #define evaluation metrics to show when training
 #####################################
@@ -331,11 +389,11 @@ def rse(label, pred):
     (condensed using standard deviation formula)"""
 
     #compute the root of the sum of the squared error
-    numerator = np.sqrt(np.mean(np.square(label - pred), axis = None))
+    numerator = np.sqrt(np.mean(np.square(label - pred), axis=None))
     #numerator = np.sqrt(np.sum(np.square(label - pred), axis=None))
 
     #compute the RMSE if we were to simply predict the average of the previous values
-    denominator = np.std(label, axis = None)
+    denominator = np.std(label, axis=None)
     #denominator = np.sqrt(np.sum(np.square(label - np.mean(label, axis = None)), axis=None))
 
     return numerator / denominator
@@ -344,6 +402,8 @@ def rse(label, pred):
 _rse = mx.metric.create(rse)
 
 #relative absolute error
+
+
 def rae(label, pred):
     """computes the relative absolute error
     (condensed using standard deviation formula)"""
@@ -358,15 +418,18 @@ def rae(label, pred):
 
     return numerator / denominator
 
+
 _rae = mx.metric.create(rae)
 
 #empirical correlation coefficient
+
+
 def corr(label, pred):
     """computes the empirical correlation coefficient"""
 
     #compute the root of the sum of the squared error
     numerator1 = label - np.mean(label, axis=0)
-    numerator2 = pred - np.mean(pred, axis = 0)
+    numerator2 = pred - np.mean(pred, axis=0)
     numerator = np.mean(numerator1 * numerator2, axis=0)
 
     #compute the root of the sum of the squared error if we were to simply predict the average of the previous values
@@ -375,18 +438,17 @@ def corr(label, pred):
     #value passed here should be 321 numbers
     return np.mean(numerator / denominator)
 
+
 _corr = mx.metric.create(corr)
 
-#use mxnet native metric function
-# eval_metrics = mx.metric.CompositeEvalMetric()
-# for child_metric in [_rse, _rae, _corr]:
-#     eval_metrics.add(child_metric)
-
-
-#create a composite metric manually as a sanity check whilst training
+#create a composite metric manually
 def metrics(label, pred):
     return ["RSE: ", rse(label, pred), "RAE: ", rae(label, pred), "CORR: ", corr(label, pred)]
+```
 
+We are done!  Time to train. The hyperparameters previously specified resulted in comparible performance to the results in the paper (*RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941*) with horizon = 3 hours.
+
+```
 ################
 # #fit the model
 ################
@@ -399,66 +461,36 @@ model.bind(data_shapes=train_iter.provide_data,
 model.init_params()
 
 # optimizer
-model.init_optimizer(optimizer=config.optimizer, optimizer_params=config.optimizer_params)
+model.init_optimizer(optimizer=optimizer,
+                     optimizer_params=optimizer_params)
 
 # train n epochs, i.e. going over the data iter one pass
-try:
+for epoch in range(num_epoch):
 
-    for epoch in range(config.num_epoch):
-        
-        train_iter.reset()
-        val_iter.reset()
-        #eval_metrics.reset()
+    train_iter.reset()
+    val_iter.reset()
 
-        for batch in train_iter:
-            model.forward(batch, is_train=True)             # compute predictions
-            model.backward()                                # compute gradients
-            model.update()                                  # update parameters
-            #model.update_metric(eval_metrics, batch.label)  # update metrics
+    for batch in train_iter:
+        # compute predictions
+        model.forward(batch, is_train=True)
+        model.backward()                                # compute gradients
+        model.update()                                  # update parameters
 
-        # compute train metrics
-        pred = model.predict(train_iter).asnumpy()
-        label = y_train
+    # compute train metrics
+    pred = model.predict(train_iter).asnumpy()
+    label = y_train
 
-        print('\n', 'Epoch %d, Training %s' % (epoch, metrics(label, pred)))
-        #print('Epoch %d, Training %s' % (epoch, eval_metrics.get()))
-        
-        # compute test metrics
-        pred = model.predict(val_iter).asnumpy()
-        label = y_valid
+    print('\n', 'Epoch %d, Training %s' % (epoch, metrics(label, pred)))
 
-        print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
+    # compute test metrics
+    pred = model.predict(val_iter).asnumpy()
+    label = y_valid
+    print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
+```
 
-################
-# save model after epochs or if user exits early
-################
-
-except KeyboardInterrupt:
-    print('\n' * 5, '-' * 89)
-    print('Exiting from training early, saving model...')
-
-    model.save_checkpoint(
-        prefix='elec_model',
-        epoch=config.num_epoch,
-        save_optimizer_states=False,
-    )
-    print('\n' * 5, '-' * 89)
-
-model.save_checkpoint(
-    prefix='elec_model',
-    epoch=config.num_epoch,
-    save_optimizer_states=False,
-    )
+This code can be found in [my github repo](https://github.com/opringle/multivariate_time_series_forecasting), separated into a training and config files. 
 
 
-# #################################
-# #  save predictions on input data
-# #################################
-
-# val_pred = model.predict(val_iter).asnumpy()
-
-# np.save("../results/val_pred.npy", val_pred)
-# np.save("../results/val_label.npy", y_valid)
 
 
 
