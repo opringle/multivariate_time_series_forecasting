@@ -429,6 +429,7 @@ try:
 
         print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
 
+
 ################
 # save model after epochs or if user exits early
 ################
@@ -440,8 +441,7 @@ except KeyboardInterrupt:
     model.save_checkpoint(
         prefix='elec_model',
         epoch=config.num_epoch,
-        save_optimizer_states=False,
-    )
+        save_optimizer_states=False)
     print('\n' * 5, '-' * 89)
 
 model.save_checkpoint(
