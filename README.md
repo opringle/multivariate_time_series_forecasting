@@ -1,6 +1,9 @@
 # Aim
 
 - Implement [this](https://arxiv.org/pdf/1703.07015.pdf) state of the art time series forecasting model in MXNet.
+
+![](./docs/model_architecture.png)
+
 - [data](https://github.com/laiguokun/multivariate-time-series-data)
 
 ## Proof of implementation
