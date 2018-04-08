@@ -1,2 +1,4 @@
 data/
 src/__pycache__/
+src/checkpoint/
+.idea
