@@ -22,64 +22,33 @@
 import numpy as np
 import mxnet as mx
 
-#root relative squared error
 def rse(label, pred):
-    """computes the root relative squared error
-    (condensed using standard deviation formula)
-    """
+    """computes the root relative squared error (condensed using standard deviation formula)"""
     #compute the root of the sum of the squared error
     numerator = np.sqrt(np.mean(np.square(label - pred), axis = None))
-    #numerator = np.sqrt(np.sum(np.square(label - pred), axis=None))
-
-    #compute the RMSE if we were to simply predict the average of the previous values
     denominator = np.std(label, axis = None)
-    #denominator = np.sqrt(np.sum(np.square(label - np.mean(label, axis = None)), axis=None))
-
     return numerator / denominator
 
-_rse = mx.metric.create(rse)
-
-#relative absolute error
 def rae(label, pred):
-    """computes the relative absolute error
-    (condensed using standard deviation formula)"""
-
-    #compute the root of the sum of the squared error
+    """computes the relative absolute error (condensed using standard deviation formula)"""
     numerator = np.mean(np.abs(label - pred), axis=None)
-    #numerator = np.sum(np.abs(label - pred), axis = None)
-
-    #compute AE if we were to simply predict the average of the previous values
     denominator = np.mean(np.abs(label - np.mean(label, axis=None)), axis=None)
-    #denominator = np.sum(np.abs(label - np.mean(label, axis = None)), axis=None)
-
     return numerator / denominator
 
-_rae = mx.metric.create(rae)
-
-#empirical correlation coefficient
 def corr(label, pred):
     """computes the empirical correlation coefficient"""
-
-    #compute the root of the sum of the squared error
     numerator1 = label - np.mean(label, axis=0)
     numerator2 = pred - np.mean(pred, axis = 0)
     numerator = np.mean(numerator1 * numerator2, axis=0)
-
-    #compute the root of the sum of the squared error if we were to simply predict the average of the previous values
     denominator = np.std(label, axis=0) * np.std(pred, axis=0)
-
-    #value passed here should be 321 numbers
     return np.mean(numerator / denominator)
-
-_corr = mx.metric.create(corr)
 
 #use mxnet native metric function
 def get_custom_metrics():
-    eval_metrics = mx.metric.CompositeEvalMetric()
-    for child_metric in [_rse, _rae, _corr]:
-        eval_metrics.add(child_metric)
-    return eval_metrics
-
+    _rse = mx.metric.create(rse)
+    _rae = mx.metric.create(rae)
+    _corr = mx.metric.create(corr)
+    return mx.metric.create([_rae, _rse, _corr])
 
 #create a composite metric manually as a sanity check whilst training
 def metrics(label, pred):

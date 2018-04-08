@@ -208,6 +208,42 @@ def train(symbol, train_iter, valid_iter, data_names, label_names):
             batch_end_callback = mx.callback.Speedometer(args.batch_size, args.disp_batches),
             epoch_end_callback = save_model())
 
+    ###################
+    # GET BELOW WORKING
+    ###################
+
+    # # allocate memory given the input data and label shapes
+    # module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label)
+    # module.init_params()
+    # module.init_optimizer(optimizer=args.optimizer, optimizer_params={'learning_rate': args.lr})
+    #
+    # # train n epochs, i.e. going over the data iter one pass
+    # try:
+    #
+    #     for epoch in range(args.num_epoch):
+    #
+    #         train_iter.reset()
+    #         val_iter.reset()
+    #         for batch in train_iter:
+    #             module.forward(batch, is_train=True)  # compute predictions
+    #             module.backward()  # compute gradients
+    #             module.update()  # update parameters
+    #             module.update_metric(eval_metrics, batch.label)  # update metrics
+    #
+    #         # compute train metrics
+    #         pred = module.predict(train_iter).asnumpy()
+    #         label = y_train
+    #
+    #         print('\n', 'Epoch %d, Training %s' % (epoch, metrics(label, pred)))
+    #         # print('Epoch %d, Training %s' % (epoch, eval_metrics.get()))
+    #
+    #         # compute test metrics
+    #         pred = model.predict(val_iter).asnumpy()
+    #         label = y_valid
+    #
+    #         print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
+
+
 if __name__ == '__main__':
     # parse args
     args = parser.parse_args()
