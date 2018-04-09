@@ -1,3 +1,4 @@
 data/
 src/__pycache__/
+models/
 .idea

@@ -17,9 +17,10 @@
 
 - Model in the paper predicts with h = 3 on electricity dataset
 - L2 model achieves *RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941* on test data
-- My results are *RSE = , RAE =  and CORR =* on validation data
 
-## Hyperparameters...
+## Hyperparameters
+
+Default arguements work well on the chosen dataset. The following hyperparams provide a good starting point:
 
 - q = {2^0, 2^1, ... , 2^9} (1 week is typical value)
 - Convolutional num layers  = {50, 100, 200}
