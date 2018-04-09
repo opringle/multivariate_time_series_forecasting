@@ -164,7 +164,8 @@ def sym_gen(train_iter, q, filter_list, num_filter, dropout, rcells, skiprcells,
     # Take output from cells p steps apart
     p = int(seasonal_period / time_interval)
     output_indices = list(range(0, q, p))
-    skip_outputs = [reversed(outputs)[i] for i in output_indices]
+    outputs.reverse()
+    skip_outputs = [outputs[i] for i in output_indices]
     skip_rnn_features = mx.sym.concat(*skip_outputs, dim=1)
 
     ##########################
