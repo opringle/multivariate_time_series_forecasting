@@ -46,11 +46,11 @@ parser.add_argument('--splits', type=str, default="0.6,0.2",
                     help='fraction of data to use for train & validation. remainder used for test.')
 parser.add_argument('--batch-size', type=int, default=500,
                     help='the batch size.')
-parser.add_argument('--filter-list', type=str, default="3,4,5",
+parser.add_argument('--filter-list', type=str, default="3,4,5,6,7",
                     help='unique filter sizes')
-parser.add_argument('--num-filters', type=int, default=4,
+parser.add_argument('--num-filters', type=int, default=100,
                     help='number of each filter size')
-parser.add_argument('--recurrent-state-size', type=int, default=5,
+parser.add_argument('--recurrent-state-size', type=int, default=50,
                     help='number of hidden units in each unrolled recurrent cell')
 parser.add_argument('--seasonal-period', type=int, default=24,
                     help='seasonal time between measurements')
@@ -58,15 +58,15 @@ parser.add_argument('--time-interval', type=int, default=1,
                     help='time between each measurement')
 parser.add_argument('--gpus', type=str, default='',
                     help='list of gpus to run, e.g. 0 or 0,2,5. empty means using cpu. ')
-parser.add_argument('--optimizer', type=str, default='rmsprop',
+parser.add_argument('--optimizer', type=str, default='adam',
                     help='the optimizer type')
-parser.add_argument('--lr', type=float, default=0.0005,
+parser.add_argument('--lr', type=float, default=0.0001,
                     help='initial learning rate')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='dropout rate for network')
 parser.add_argument('--num-epochs', type=int, default=200,
                     help='max num of epochs')
-parser.add_argument('--save-period', type=int, default=5,
+parser.add_argument('--save-period', type=int, default=15,
                     help='save checkpoint for every n epochs')
 parser.add_argument('--model_prefix', type=str, default='electricity_model',
                     help='prefix for saving model params')
@@ -112,10 +112,10 @@ def build_iters(data_dir, max_records, q, horizon, splits, batch_size):
                                    batch_size=batch_size)
     val_iter = mx.io.NDArrayIter(data=x_valid,
                                  label=y_valid,
-                                 batch_size=batch_size)
+                                 batch_size=1)
     test_iter = mx.io.NDArrayIter(data=x_test,
                                   label=y_test,
-                                  batch_size=batch_size)
+                                  batch_size=1)
     return train_iter, val_iter, test_iter
 
 def sym_gen(train_iter, q, filter_list, num_filter, dropout, rcells, skiprcells, seasonal_period, time_interval):
@@ -216,7 +216,7 @@ def train(symbol, train_iter, valid_iter, data_names, label_names):
         val_label = val_iter.label[0][1].asnumpy()
         print('Metrics: Epoch %d, Validation %s' % (epoch, metrics.evaluate(val_pred, val_label)))
 
-        if epoch % args.save_period ==0:
+        if epoch % args.save_period ==0 and epoch > 0:
             module.save_checkpoint(prefix=os.path.join("../models/", args.model_prefix), epoch=epoch, save_optimizer_states=False)
 
 if __name__ == '__main__':
