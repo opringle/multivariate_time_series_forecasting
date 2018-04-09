@@ -24,7 +24,6 @@ import mxnet as mx
 
 def rse(label, pred):
     """computes the root relative squared error (condensed using standard deviation formula)"""
-    #compute the root of the sum of the squared error
     numerator = np.sqrt(np.mean(np.square(label - pred), axis = None))
     denominator = np.std(label, axis = None)
     return numerator / denominator
@@ -43,13 +42,14 @@ def corr(label, pred):
     denominator = np.std(label, axis=0) * np.std(pred, axis=0)
     return np.mean(numerator / denominator)
 
-#use mxnet native metric function
 def get_custom_metrics():
+    """
+    :return: mxnet metric object
+    """
     _rse = mx.metric.create(rse)
     _rae = mx.metric.create(rae)
     _corr = mx.metric.create(corr)
     return mx.metric.create([_rae, _rse, _corr])
 
-#create a composite metric manually as a sanity check whilst training
-def metrics(label, pred):
-    return ["RSE: ", rse(label, pred), "RAE: ", rae(label, pred), "CORR: ", corr(label, pred)]
+def evaluate(pred, label):
+    return {"RAE":rae(label, pred), "RSE":rse(label,pred),"CORR": corr(label,pred)}

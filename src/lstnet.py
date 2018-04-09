@@ -19,7 +19,6 @@
 
 # -*- coding: utf-8 -*-
 
-#Todo: get custom MXNet metrics running
 #Todo: pass integer list in as  arguement correctly
 #Todo: understand skip connections better and ensure implementation is correct
 
@@ -68,10 +67,10 @@ parser.add_argument('--dropout', type=float, default=0.5,
                     help='dropout rate for network')
 parser.add_argument('--num-epochs', type=int, default=200,
                     help='max num of epochs')
-parser.add_argument('--disp-batches', type=int, default=50,
-                    help='show progress for every n batches')
-parser.add_argument('--save-period', type=int, default=10,
+parser.add_argument('--save-period', type=int, default=5,
                     help='save checkpoint for every n epochs')
+parser.add_argument('--model_prefix', type=str, default='electricity_model',
+                    help='prefix for saving model params')
 
 def build_iters(data_dir, max_records, q, horizon, splits, batch_size):
     """
@@ -120,14 +119,14 @@ def build_iters(data_dir, max_records, q, horizon, splits, batch_size):
                                   batch_size=batch_size)
     return train_iter, val_iter, test_iter
 
-def sym_gen(train_iter, batch_size, q, filter_list, num_filter, dropout, rcells, skiprcells, seasonal_period, time_interval):
+def sym_gen(train_iter, q, filter_list, num_filter, dropout, rcells, skiprcells, seasonal_period, time_interval):
 
     input_feature_shape = train_iter.provide_data[0][1]
     X = mx.symbol.Variable(train_iter.provide_data[0].name)
     Y = mx.sym.Variable(train_iter.provide_label[0].name)
 
     # reshape data before applying convolutional layer (takes 4D shape incase you ever work with images)
-    conv_input = mx.sym.reshape(data=X, shape=(batch_size, 1, q, -1))
+    conv_input = mx.sym.reshape(data=X, shape=(0, 1, q, -1))
 
     ###############
     # CNN Component
@@ -139,7 +138,7 @@ def sym_gen(train_iter, batch_size, q, filter_list, num_filter, dropout, rcells,
                           pad_width=(0, 0, 0, 0, filter_size - 1, 0, 0, 0))
         convi = mx.sym.Convolution(data=padi, kernel=(filter_size, input_feature_shape[2]), num_filter=num_filter)
         acti = mx.sym.Activation(data=convi, act_type='relu')
-        trans = mx.sym.reshape(mx.sym.transpose(data=acti, axes=(0, 2, 1, 3)), shape=(batch_size, q, num_filter))
+        trans = mx.sym.reshape(mx.sym.transpose(data=acti, axes=(0, 2, 1, 3)), shape=(0, 0, 0))
         outputs.append(trans)
     cnn_features = mx.sym.Concat(*outputs, dim=2)
     cnn_reg_features = mx.sym.Dropout(cnn_features, p=dropout)
@@ -198,51 +197,28 @@ def save_model():
 def train(symbol, train_iter, valid_iter, data_names, label_names):
     devs = mx.cpu() if args.gpus is None or args.gpus is '' else [mx.gpu(int(i)) for i in args.gpus.split(',')]
     module = mx.mod.Module(symbol, data_names=data_names, label_names=label_names, context=devs)
-    module.fit(train_data=train_iter,
-            eval_data=valid_iter,
-            eval_metric=metrics.get_custom_metrics(),
-            optimizer = args.optimizer,
-            optimizer_params = {'learning_rate': args.lr},
-            initializer = mx.initializer.Uniform(0.1),
-            num_epoch = args.num_epochs,
-            batch_end_callback = mx.callback.Speedometer(args.batch_size, args.disp_batches),
-            epoch_end_callback = save_model())
+    module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label)
+    module.init_params(mx.initializer.Uniform(0.1))
+    module.init_optimizer(optimizer=args.optimizer, optimizer_params={'learning_rate': args.lr})
 
-    ###################
-    # GET BELOW WORKING
-    ###################
+    for epoch in range(args.num_epochs):
+        train_iter.reset()
+        val_iter.reset()
+        for batch in train_iter:
+            module.forward(batch, is_train=True)  # compute predictions
+            module.backward()  # compute gradients
+            module.update() # update parameters
 
-    # # allocate memory given the input data and label shapes
-    # module.bind(data_shapes=train_iter.provide_data, label_shapes=train_iter.provide_label)
-    # module.init_params()
-    # module.init_optimizer(optimizer=args.optimizer, optimizer_params={'learning_rate': args.lr})
-    #
-    # # train n epochs, i.e. going over the data iter one pass
-    # try:
-    #
-    #     for epoch in range(args.num_epoch):
-    #
-    #         train_iter.reset()
-    #         val_iter.reset()
-    #         for batch in train_iter:
-    #             module.forward(batch, is_train=True)  # compute predictions
-    #             module.backward()  # compute gradients
-    #             module.update()  # update parameters
-    #             module.update_metric(eval_metrics, batch.label)  # update metrics
-    #
-    #         # compute train metrics
-    #         pred = module.predict(train_iter).asnumpy()
-    #         label = y_train
-    #
-    #         print('\n', 'Epoch %d, Training %s' % (epoch, metrics(label, pred)))
-    #         # print('Epoch %d, Training %s' % (epoch, eval_metrics.get()))
-    #
-    #         # compute test metrics
-    #         pred = model.predict(val_iter).asnumpy()
-    #         label = y_valid
-    #
-    #         print('Epoch %d, Validation %s' % (epoch, metrics(label, pred)))
+        train_pred = module.predict(train_iter).asnumpy()
+        train_label = train_iter.label[0][1].asnumpy()
+        print('\nMetrics: Epoch %d, Training %s' % (epoch, metrics.evaluate(train_pred, train_label)))
 
+        val_pred = module.predict(val_iter).asnumpy()
+        val_label = val_iter.label[0][1].asnumpy()
+        print('Metrics: Epoch %d, Validation %s' % (epoch, metrics.evaluate(val_pred, val_label)))
+
+        if epoch % args.save_period ==0:
+            module.save_checkpoint(prefix=os.path.join("../models/", args.model_prefix), epoch=epoch, save_optimizer_states=False)
 
 if __name__ == '__main__':
     # parse args
@@ -262,7 +238,7 @@ if __name__ == '__main__':
     skiprcells = [mx.rnn.LSTMCell(num_hidden=args.recurrent_state_size)]
 
     # Define network symbol
-    symbol, data_names, label_names = sym_gen(train_iter, args.batch_size, args.q, args.filter_list, args.num_filters,
+    symbol, data_names, label_names = sym_gen(train_iter, args.q, args.filter_list, args.num_filters,
                                               args.dropout, rcells, skiprcells, args.seasonal_period, args.time_interval)
 
     # train cnn model
