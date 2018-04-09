@@ -112,10 +112,10 @@ def build_iters(data_dir, max_records, q, horizon, splits, batch_size):
                                    batch_size=batch_size)
     val_iter = mx.io.NDArrayIter(data=x_valid,
                                  label=y_valid,
-                                 batch_size=1)
+                                 batch_size=batch_size)
     test_iter = mx.io.NDArrayIter(data=x_test,
                                   label=y_test,
-                                  batch_size=1)
+                                  batch_size=batch_size)
     return train_iter, val_iter, test_iter
 
 def sym_gen(train_iter, q, filter_list, num_filter, dropout, rcells, skiprcells, seasonal_period, time_interval):
