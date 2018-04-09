@@ -161,13 +161,11 @@ def sym_gen(train_iter, q, filter_list, num_filter, dropout, rcells, skiprcells,
         stacked_rnn_cells.add(mx.rnn.DropoutCell(dropout))
     outputs, states = stacked_rnn_cells.unroll(length=q, inputs=cnn_reg_features, merge_outputs=False)
 
-    # Take output from specific cells
+    # Take output from cells p steps apart
     p = int(seasonal_period / time_interval)
-    output_indices = []
-    for i in range(0, len(outputs)-p, 1):
-        output_indices.append([i, i+p])
-    outputs = [mx.sym.concat(*[outputs[pair[0]], outputs[pair[1]]], dim=1) for pair in output_indices]
-    skip_rnn_features = mx.sym.concat(*outputs, dim=1)
+    output_indices = list(range(0, q, p))
+    skip_outputs = [reversed(outputs)[i] for i in output_indices]
+    skip_rnn_features = mx.sym.concat(*skip_outputs, dim=1)
 
     ##########################
     # Autoregressive Component
