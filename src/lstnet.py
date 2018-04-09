@@ -46,7 +46,7 @@ parser.add_argument('--splits', type=str, default="0.6,0.2",
                     help='fraction of data to use for train & validation. remainder used for test.')
 parser.add_argument('--batch-size', type=int, default=128,
                     help='the batch size.')
-parser.add_argument('--filter-list', type=str, default="6",
+parser.add_argument('--filter-list', type=str, default="6,12,18",
                     help='unique filter sizes')
 parser.add_argument('--num-filters', type=int, default=100,
                     help='number of each filter size')
