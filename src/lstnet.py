@@ -38,22 +38,22 @@ parser.add_argument('--data-dir', type=str, default='../data',
                     help='relative path to input data')
 parser.add_argument('--max-records', type=int, default=None,
                     help='total records before data split')
-parser.add_argument('--q', type=int, default=168,
+parser.add_argument('--q', type=int, default=24*7,
                     help='number of historical measurements included in each training example')
 parser.add_argument('--horizon', type=int, default=3,
                     help='number of measurements ahead to predict')
 parser.add_argument('--splits', type=str, default="0.6,0.2",
                     help='fraction of data to use for train & validation. remainder used for test.')
-parser.add_argument('--batch-size', type=int, default=500,
+parser.add_argument('--batch-size', type=int, default=128,
                     help='the batch size.')
-parser.add_argument('--filter-list', type=str, default="3,4,5,6,7",
+parser.add_argument('--filter-list', type=str, default="6",
                     help='unique filter sizes')
 parser.add_argument('--num-filters', type=int, default=100,
                     help='number of each filter size')
-parser.add_argument('--recurrent-state-size', type=int, default=50,
+parser.add_argument('--recurrent-state-size', type=int, default=100,
                     help='number of hidden units in each unrolled recurrent cell')
 parser.add_argument('--seasonal-period', type=int, default=24,
-                    help='seasonal time between measurements')
+                    help='time between seasonal measurements')
 parser.add_argument('--time-interval', type=int, default=1,
                     help='time between each measurement')
 parser.add_argument('--gpus', type=str, default='',
@@ -62,11 +62,11 @@ parser.add_argument('--optimizer', type=str, default='adam',
                     help='the optimizer type')
 parser.add_argument('--lr', type=float, default=0.001,
                     help='initial learning rate')
-parser.add_argument('--dropout', type=float, default=0.5,
+parser.add_argument('--dropout', type=float, default=0.2,
                     help='dropout rate for network')
-parser.add_argument('--num-epochs', type=int, default=200,
+parser.add_argument('--num-epochs', type=int, default=100,
                     help='max num of epochs')
-parser.add_argument('--save-period', type=int, default=15,
+parser.add_argument('--save-period', type=int, default=20,
                     help='save checkpoint for every n epochs')
 parser.add_argument('--model_prefix', type=str, default='electricity_model',
                     help='prefix for saving model params')
