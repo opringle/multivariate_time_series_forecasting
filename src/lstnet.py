@@ -60,7 +60,7 @@ parser.add_argument('--gpus', type=str, default='',
                     help='list of gpus to run, e.g. 0 or 0,2,5. empty means using cpu. ')
 parser.add_argument('--optimizer', type=str, default='adam',
                     help='the optimizer type')
-parser.add_argument('--lr', type=float, default=0.0001,
+parser.add_argument('--lr', type=float, default=0.001,
                     help='initial learning rate')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='dropout rate for network')
