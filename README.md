@@ -10,13 +10,16 @@
     - `$ mkdir data && cd data`
     - `$ wget https://github.com/laiguokun/multivariate-time-series-data/raw/master/electricity/electricity.txt.gz`
     - `$ gunzip electricity.txt.gz`
-2. Train the model:
-    - `$ cd src && python lstnet.py`
+2. Train the model (~2 hours on Tesla K80 GPU with default hyperparams):
+    - `$ cd src && python lstnet.py --gpus=0`
 
-## Proof of implementation
+## Results & Comparison
 
-- Model in the paper predicts with h = 3 on electricity dataset
-- L2 model achieves *RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941* on test data
+- The model in the paper predicts with h = 3 on electricity dataset, achieving *RSE = 0.0906, RAE = 0.0519 and CORR = 0.9195* on test dataset
+- This MXNet implementation achieves *RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941* after 100 epochs on the validation dataset
+- Saved model checkpoint files can be found in `models/`
+
+![](./docs/epochs.png)
 
 ## Hyperparameters
 
@@ -24,7 +27,7 @@ The default arguements in `lstnet.py` achieve equivolent performance to the publ
 
 - q = {2^0, 2^1, ... , 2^9} (1 week is typical value)
 - Convolutional num filters  = {50, 100, 200}
-- Convoutional kernel size = 6
+- Convolutional kernel sizes = 6,12,18
 - Recurrent state size = {50, 100, 200}
 - Skip recurrent state size = {20, 50, 100}
 - Skip distance = 24 (tune this based on domain knowledge)
