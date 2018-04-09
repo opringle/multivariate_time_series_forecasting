@@ -1,10 +1,17 @@
-# Aim
+# LSTNet
 
-- Implement [this](https://arxiv.org/pdf/1703.07015.pdf) state of the art time series forecasting model in MXNet.
+- This repo contains an MXNet implementation of [this](https://arxiv.org/pdf/1703.07015.pdf) state of the art time series forecasting model.
 
 ![](./docs/model_architecture.png)
 
-- [data](https://github.com/laiguokun/multivariate-time-series-data)
+## Running the code
+
+1. Download & extract the training data: 
+    - `$ mkdir data && cd data`
+    - `$ wget https://github.com/laiguokun/multivariate-time-series-data/raw/master/electricity/electricity.txt.gz`
+    - `$ gunzip electricity.txt.gz`
+2. Train the model:
+    - `$ cd src && python lstnet.py`
 
 ## Proof of implementation
 
