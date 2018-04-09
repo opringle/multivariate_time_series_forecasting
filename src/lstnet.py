@@ -19,8 +19,7 @@
 
 # -*- coding: utf-8 -*-
 
-#Todo: pass integer list in as  arguement correctly
-#Todo: understand skip connections better and ensure implementation is correct
+#Todo: Ensure skip connection implementation is correct
 
 import os
 import math
@@ -39,15 +38,15 @@ parser.add_argument('--data-dir', type=str, default='../data',
                     help='relative path to input data')
 parser.add_argument('--max-records', type=int, default=None,
                     help='total records before data split')
-parser.add_argument('--q', type=int, default=100,
+parser.add_argument('--q', type=int, default=168,
                     help='number of historical measurements included in each training example')
-parser.add_argument('--horizon', type=int, default=1,
+parser.add_argument('--horizon', type=int, default=3,
                     help='number of measurements ahead to predict')
-parser.add_argument('--splits', type=list, default=[0.7,0.2],
+parser.add_argument('--splits', type=str, default="0.6,0.2",
                     help='fraction of data to use for train & validation. remainder used for test.')
-parser.add_argument('--batch-size', type=int, default=50,
+parser.add_argument('--batch-size', type=int, default=500,
                     help='the batch size.')
-parser.add_argument('--filter-list', type=list, default=[3,4,5],
+parser.add_argument('--filter-list', type=str, default="3,4,5",
                     help='unique filter sizes')
 parser.add_argument('--num-filters', type=int, default=4,
                     help='number of each filter size')
@@ -223,6 +222,8 @@ def train(symbol, train_iter, valid_iter, data_names, label_names):
 if __name__ == '__main__':
     # parse args
     args = parser.parse_args()
+    args.splits = list(map(float, args.splits.split(',')))
+    args.filter_list = list(map(int, args.filter_list.split(',')))
 
     # Check valid args
     if not max(args.filter_list) <= args.q:
