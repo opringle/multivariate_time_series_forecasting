@@ -1,6 +1,7 @@
 # LSTNet
 
 - This repo contains an MXNet implementation of [this](https://arxiv.org/pdf/1703.07015.pdf) state of the art time series forecasting model.
+- You can find my blog post on the model [here](https://opringle.github.io/2018/01/05/deep_learning_multivariate_ts.html)
 
 ![](./docs/model_architecture.png)
 
