@@ -187,11 +187,6 @@ def sym_gen(train_iter, q, filter_list, num_filter, dropout, rcells, skiprcells,
     loss_grad = mx.sym.LinearRegressionOutput(data=model_output, label=Y)
     return loss_grad, [v.name for v in train_iter.provide_data], [v.name for v in train_iter.provide_label]
 
-def save_model():
-    if not os.path.exists("checkpoint"):
-        os.mkdir("checkpoint")
-    return mx.callback.do_checkpoint("checkpoint/checkpoint", args.save_period)
-
 def train(symbol, train_iter, valid_iter, data_names, label_names):
     devs = mx.cpu() if args.gpus is None or args.gpus is '' else [mx.gpu(int(i)) for i in args.gpus.split(',')]
     module = mx.mod.Module(symbol, data_names=data_names, label_names=label_names, context=devs)
