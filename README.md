@@ -10,16 +10,14 @@
     - `$ mkdir data && cd data`
     - `$ wget https://github.com/laiguokun/multivariate-time-series-data/raw/master/electricity/electricity.txt.gz`
     - `$ gunzip electricity.txt.gz`
-2. Train the model (~2 hours on Tesla K80 GPU with default hyperparams):
+2. Train the model (~1.5 hours on Tesla K80 GPU with default hyperparams):
     - `$ cd src && python lstnet.py --gpus=0`
 
 ## Results & Comparison
 
 - The model in the paper predicts with h = 3 on electricity dataset, achieving *RSE = 0.0906, RAE = 0.0519 and CORR = 0.9195* on test dataset
-- This MXNet implementation achieves *RSE = 0.0967, RAE = 0.0581 and CORR = 0.8941* after 100 epochs on the validation dataset
+- This MXNet implementation achieves *RSE = 0.0880, RAE = 0.0542* after 100 epochs on the validation dataset
 - Saved model checkpoint files can be found in `models/`
-
-![](./docs/epochs.png)
 
 ## Hyperparameters
 
