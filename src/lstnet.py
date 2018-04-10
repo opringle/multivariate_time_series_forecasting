@@ -199,7 +199,7 @@ def train(symbol, train_iter, valid_iter, data_names, label_names):
     module.init_params(mx.initializer.Uniform(0.1))
     module.init_optimizer(optimizer=args.optimizer, optimizer_params={'learning_rate': args.lr})
 
-    for epoch in range(args.num_epochs):
+    for epoch in range(1, args.num_epochs+1):
         train_iter.reset()
         val_iter.reset()
         for batch in train_iter:
@@ -215,9 +215,11 @@ def train(symbol, train_iter, valid_iter, data_names, label_names):
         val_label = val_iter.label[0][1].asnumpy()
         print('Metrics: Epoch %d, Validation %s' % (epoch, metrics.evaluate(val_pred, val_label)))
 
-        if epoch % args.save_period ==0 and epoch > 0:
+        if epoch % args.save_period == 0 and epoch > 1:
             module.save_checkpoint(prefix=os.path.join("../models/", args.model_prefix), epoch=epoch, save_optimizer_states=False)
-
+        if epoch == args.num_epochs:
+            module.save_checkpoint(prefix=os.path.join("../models/", args.model_prefix), epoch=epoch, save_optimizer_states=False)
+ 
 if __name__ == '__main__':
     # parse args
     args = parser.parse_args()
