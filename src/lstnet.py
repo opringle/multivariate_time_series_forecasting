@@ -79,7 +79,7 @@ def build_iters(data_dir, max_records, q, horizon, splits, batch_size):
     # Read in data as numpy array
     df = pd.read_csv(os.path.join(data_dir, "electricity.txt"), sep=",", header=None)
     feature_df = df.iloc[:, :].astype(float)
-    x = feature_df.as_matrix()
+    x = feature_df.values
     x = x[:max_records] if max_records else x
 
     # Construct training examples based on horizon and window
